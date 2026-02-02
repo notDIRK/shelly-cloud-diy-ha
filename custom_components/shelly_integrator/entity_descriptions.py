@@ -2,11 +2,15 @@
 
 Based on the official Home Assistant Shelly integration patterns.
 See: https://github.com/home-assistant/core/blob/dev/homeassistant/components/shelly/sensor.py
+
+Uses aioshelly library for device model definitions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Final
+
+from aioshelly.const import MODEL_NAMES
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -24,78 +28,12 @@ from homeassistant.const import (
 )
 
 
-# ============================================================================
-# Model Names (from aioshelly/const.py)
-# ============================================================================
-MODEL_NAMES: Final[dict[str, str]] = {
-    # Gen1 devices
-    "SHSW-1": "Shelly 1",
-    "SHSW-L": "Shelly 1L",
-    "SHSW-PM": "Shelly 1PM",
-    "SHSW-21": "Shelly 2",
-    "SHSW-25": "Shelly 2.5",
-    "SHEM": "Shelly EM",
-    "SHEM-3": "Shelly 3EM",
-    "SHGS-1": "Shelly Gas",
-    "SHHT-1": "Shelly H&T",
-    "SHDW-1": "Shelly Door/Window",
-    "SHDW-2": "Shelly Door/Window 2",
-    "SHWT-1": "Shelly Flood",
-    "SHMOS-01": "Shelly Motion",
-    "SHMOS-02": "Shelly Motion 2",
-    "SHSM-01": "Shelly Smoke",
-    "SHSM-02": "Shelly Smoke 2",
-    "SHPLG-1": "Shelly Plug",
-    "SHPLG-S": "Shelly Plug S",
-    "SHPLG-U1": "Shelly Plug US",
-    "SHPLG2-1": "Shelly Plug E",
-    "SHBDUO-1": "Shelly DUO",
-    "SHVIN-1": "Shelly Vintage",
-    "SHCB-1": "Shelly Bulb RGBW",
-    "SHBLB-1": "Shelly Bulb",
-    "SHDM-1": "Shelly Dimmer",
-    "SHDM-2": "Shelly Dimmer 2",
-    "SHRGBW2": "Shelly RGBW2",
-    "SHIX3-1": "Shelly i3",
-    "SHUNI-1": "Shelly UNI",
-    "SHTRV-01": "Shelly Valve",
-    "SHAIR-1": "Shelly Air",
-    # Gen2 devices
-    "SNSW-001X16EU": "Shelly Plus 1",
-    "SNSW-001X8EU": "Shelly Plus 1 Mini",
-    "SNSW-001P16EU": "Shelly Plus 1PM",
-    "SNSW-001P8EU": "Shelly Plus 1PM Mini",
-    "SNSW-002P16EU": "Shelly Plus 2PM",
-    "SNSN-0013A": "Shelly Plus H&T",
-    "SNSN-0024X": "Shelly Plus I4",
-    "SNPL-00112EU": "Shelly Plus Plug S",
-    "SNPL-00112UK": "Shelly Plus Plug UK",
-    "SNPL-00116US": "Shelly Plus Plug US",
-    "SNSN-0031Z": "Shelly Plus Smoke",
-    "SNSN-0043X": "Shelly Plus Uni",
-    # Gen2 Pro devices
-    "SPSW-001XE16EU": "Shelly Pro 1",
-    "SPSW-001PE16EU": "Shelly Pro 1PM",
-    "SPSW-002XE16EU": "Shelly Pro 2",
-    "SPSW-002PE16EU": "Shelly Pro 2PM",
-    "SPSW-003XE16EU": "Shelly Pro 3",
-    "SPSW-004PE16EU": "Shelly Pro 4PM",
-    "SPEM-002CEBEU50": "Shelly Pro EM",
-    "SPEM-003CEBEU": "Shelly Pro 3EM",
-    # Gen3 devices
-    "S3SW-001X16EU": "Shelly 1 Gen3",
-    "S3SW-001P16EU": "Shelly 1PM Gen3",
-    "S3SW-002P16EU": "Shelly 2PM Gen3",
-    "S3SN-0U12A": "Shelly H&T Gen3",
-    "S3PL-00112EU": "Shelly Plug S Gen3",
-    # Gen4 devices
-    "S4SW-001X16EU": "Shelly 1 Gen4",
-    "S4SW-001P16EU": "Shelly 1PM Gen4",
-}
-
-
 def get_model_name(device_code: str) -> str:
-    """Get friendly model name from device code."""
+    """Get friendly model name from device code.
+    
+    Uses MODEL_NAMES from aioshelly library which contains all official
+    Shelly device model codes and their friendly names.
+    """
     return MODEL_NAMES.get(device_code, device_code)
 
 
