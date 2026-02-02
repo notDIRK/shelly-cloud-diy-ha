@@ -181,7 +181,8 @@ class HistoricalDataService:
                 if not csv_data:
                     continue
 
-                output_file = convert_channel_csv(
+                output_file = await convert_channel_csv(
+                    hass=self._hass,
                     csv_data=csv_data,
                     hostname=hostname,
                     channel=channel,

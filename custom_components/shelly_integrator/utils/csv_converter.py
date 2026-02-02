@@ -92,18 +92,25 @@ def convert_to_statistics_format(
     return rows
 
 
-def save_statistics_csv(rows: list[list[str]], output_path: Path) -> None:
-    """Save statistics rows to a CSV file.
+def rows_to_csv_string(rows: list[list[str]]) -> str:
+    """Convert rows to CSV string.
     
     Args:
         rows: List of CSV rows including header
-        output_path: Path to save the CSV file
+        
+    Returns:
+        CSV formatted string
     """
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=",")
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def _write_file_sync(output_path: Path, content: str) -> None:
+    """Write content to file synchronously (for executor)."""
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=",")
-        writer.writerows(rows)
-    
-    _LOGGER.info("Saved %d rows to %s", len(rows) - 1, output_path)
+        f.write(content)
 
 
 def build_statistic_id(hostname: str, channel: int) -> str:
@@ -134,7 +141,8 @@ def build_output_filename(hostname: str, channel: int) -> str:
     return f"shelly_import_{safe_hostname}_ch{channel + 1}.csv"
 
 
-def convert_channel_csv(
+async def convert_channel_csv(
+    hass: "HomeAssistant",
     csv_data: str,
     hostname: str,
     channel: int,
@@ -145,9 +153,10 @@ def convert_channel_csv(
     This is the main conversion function that orchestrates:
     1. Parsing the raw Shelly CSV
     2. Converting to statistics format
-    3. Saving to file
+    3. Saving to file (async via executor)
     
     Args:
+        hass: Home Assistant instance
         csv_data: Raw CSV string from Shelly EM device
         hostname: Device hostname
         channel: Channel number (0-indexed)
@@ -169,8 +178,13 @@ def convert_channel_csv(
         output_filename = build_output_filename(hostname, channel)
         output_path = Path(config_path) / output_filename
         
-        save_statistics_csv(rows, output_path)
+        # Convert rows to CSV string
+        csv_content = rows_to_csv_string(rows)
         
+        # Write file using executor to avoid blocking
+        await hass.async_add_executor_job(_write_file_sync, output_path, csv_content)
+        
+        _LOGGER.info("Saved %d rows to %s", len(rows) - 1, output_path)
         _LOGGER.info(
             "Converted %d hours of data for %s channel %d",
             len(hourly_data), hostname, channel
