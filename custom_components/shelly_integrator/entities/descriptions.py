@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Final
 
-from aioshelly.const import MODEL_NAMES
-
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
@@ -26,6 +24,8 @@ from homeassistant.const import (
     UnitOfReactivePower,
     UnitOfTemperature,
 )
+
+from aioshelly.const import MODEL_NAMES
 
 
 def get_model_name(device_code: str) -> str:
