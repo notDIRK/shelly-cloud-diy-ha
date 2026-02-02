@@ -25,8 +25,11 @@
   "options": {
     "step": {
       "init": {
-        "title": "Add More Devices",
-        "description": "Click the link below to grant access to additional Shelly devices:\n\n**[Open Shelly Cloud Consent Page]({consent_url})**\n\nSelect the devices you want to add, then click **Submit** below."
+        "title": "Shelly Integrator Options",
+        "description": "**Add More Devices:**\n[Open Shelly Cloud Consent Page]({consent_url})\n\n**Historical Data Import (Optional):**\nIf you have a local proxy to your Shelly EM devices, enter the base URL below.",
+        "data": {
+          "local_gateway_url": "Local Gateway URL (e.g., https://myproxy.com/sensor)"
+        }
       }
     }
   },
