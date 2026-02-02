@@ -127,17 +127,15 @@ class HistoricalDataService:
                 from pathlib import Path
                 filename = Path(csv_file).name
                 
-                # Service parameters must match import_statistics expected format
+                # Parameters passed directly, not nested
                 await self._hass.services.async_call(
                     "import_statistics",
                     "import_from_file",
                     {
                         "filename": filename,
-                        "define_import_format": {
-                            "delimiter": ",",
-                            "decimal": "dot ('.')",
-                            "datetime_format": "%d.%m.%Y %H:%M",
-                        },
+                        "delimiter": ",",
+                        "decimal": "dot ('.')",
+                        "datetime_format": "%d.%m.%Y %H:%M",
                     },
                     blocking=True,
                 )
