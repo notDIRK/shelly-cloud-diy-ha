@@ -1,9 +1,9 @@
-convert_historical_data:
-  name: Convert Historical Data
+download_and_convert_history:
+  name: Download and Convert History
   description: >-
-    Fetches Shelly EM historical energy data from a local gateway proxy and
-    converts it to CSV format compatible with the homeassistant-statistics
-    HACS integration for import into Home Assistant long-term statistics.
+    Downloads Shelly EM historical energy data from local gateway proxy,
+    converts it to CSV format compatible with homeassistant-statistics
+    HACS integration, and saves to config directory for import.
   fields:
     gateway_url:
       name: Gateway URL

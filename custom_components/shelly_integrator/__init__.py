@@ -117,17 +117,17 @@ async def _register_services(
     """Register integration services."""
     historical_service = HistoricalDataService(hass, coordinator, entry)
 
-    if not hass.services.has_service(DOMAIN, "convert_historical_data"):
+    if not hass.services.has_service(DOMAIN, "download_and_convert_history"):
         hass.services.async_register(
             DOMAIN,
-            "convert_historical_data",
+            "download_and_convert_history",
             historical_service.handle_service_call,
             schema=vol.Schema({
                 vol.Optional("gateway_url"): cv.string,
                 vol.Optional("device_id"): cv.string,
             }),
         )
-        _LOGGER.info("Registered service: shelly_integrator.convert_historical_data")
+        _LOGGER.info("Registered service: shelly_integrator.download_and_convert_history")
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

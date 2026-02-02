@@ -49,9 +49,9 @@
     }
   },
   "services": {
-    "convert_historical_data": {
-      "name": "Convert Historical Data",
-      "description": "Fetches Shelly EM historical data from local gateway and converts it to CSV format compatible with the homeassistant-statistics HACS integration.",
+    "download_and_convert_history": {
+      "name": "Download and Convert History",
+      "description": "Downloads Shelly EM historical data from local gateway and converts to CSV format for import via homeassistant-statistics.",
       "fields": {
         "gateway_url": {
           "name": "Gateway URL",
