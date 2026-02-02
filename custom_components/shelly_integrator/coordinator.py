@@ -122,6 +122,9 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._ws_connections[host] = ws
             _LOGGER.info("WebSocket connected to %s", host)
 
+            # Request status for all devices we know about on this host
+            await self._request_device_statuses(host)
+
             async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     await self._handle_message(msg.data, host)
@@ -134,20 +137,57 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self._ws_connections.pop(host, None)
 
+    async def _request_device_statuses(self, host: str) -> None:
+        """Request status for all devices on this host."""
+        devices_on_host = [
+            device_id for device_id, h in self._device_host_map.items() if h == host
+        ]
+
+        _LOGGER.info("Requesting status for %d devices on %s: %s", len(devices_on_host), host, devices_on_host)
+
+        for device_id in devices_on_host:
+            try:
+                # Request full device status
+                self._message_id += 1
+                msg_id = self._message_id
+
+                ws = self._ws_connections.get(host)
+                if ws:
+                    command = {
+                        "id": msg_id,
+                        "device": device_id,
+                        "method": "Shelly.GetStatus",
+                    }
+                    _LOGGER.debug("Sending GetStatus for %s: %s", device_id, command)
+                    await ws.send_json(command)
+            except Exception as err:
+                _LOGGER.error("Failed to request status for %s: %s", device_id, err)
+
     async def _handle_message(self, data: str, host: str) -> None:
         """Handle incoming WebSocket message."""
         try:
             message = json.loads(data)
-            _LOGGER.debug("Received: %s", message)
+            _LOGGER.info("WebSocket received from %s: %s", host, message)
 
-            # Handle command responses
-            if "id" in message and message["id"] in self._pending_commands:
-                future = self._pending_commands.pop(message["id"])
-                if not future.done():
-                    future.set_result(message)
-                return
+            # Handle command responses (including GetStatus responses)
+            if "id" in message:
+                msg_id = message["id"]
+                if msg_id in self._pending_commands:
+                    future = self._pending_commands.pop(msg_id)
+                    if not future.done():
+                        future.set_result(message)
+                    return
 
-            # Handle different message types
+                # Handle GetStatus response (sent by us to get initial state)
+                if "result" in message:
+                    device_id = message.get("src") or message.get("device")
+                    result = message.get("result", {})
+                    if device_id and result:
+                        _LOGGER.info("Got status response for %s: %s", device_id, result)
+                        await self._handle_status_response(device_id, result, host)
+                    return
+
+            # Handle different message types (pushed events)
             event = message.get("event")
 
             if event == "Shelly:StatusOnChange":
@@ -158,11 +198,29 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._handle_offline(message, host)
             elif event == "Shelly:NotifyFullStatus":
                 await self._handle_full_status(message, host)
+            elif event:
+                _LOGGER.info("Unhandled event type: %s - %s", event, message)
             else:
-                _LOGGER.debug("Unknown event: %s", event)
+                _LOGGER.info("Message without event: %s", message)
 
         except json.JSONDecodeError as err:
             _LOGGER.error("Failed to parse message: %s", err)
+
+    async def _handle_status_response(self, device_id: str, result: dict, host: str) -> None:
+        """Handle GetStatus response."""
+        is_new = device_id not in self.devices
+        self._device_host_map[device_id] = host
+        self.devices[device_id] = {
+            "status": result,
+            "online": True,
+        }
+        _LOGGER.info("Device %s status updated: online=%s, components=%s",
+                     device_id, True, list(result.keys()) if isinstance(result, dict) else result)
+        self.async_set_updated_data(self.devices)
+
+        if is_new:
+            _LOGGER.info("New device discovered: %s - dispatching signal", device_id)
+            async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
 
     async def _handle_status_change(self, message: dict, host: str) -> None:
         """Handle device status change event."""
