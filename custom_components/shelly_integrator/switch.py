@@ -34,16 +34,47 @@ async def async_setup_entry(
         entities = []
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
-        relays = status.get("relays", [])
+        device_type = device_data.get("device_type", "")
 
-        for idx, _ in enumerate(relays):
+        # Gen1 format: relays array
+        relays = status.get("relays", [])
+        if relays:
+            for idx, _ in enumerate(relays):
+                entities.append(
+                    ShellyIntegratorSwitch(
+                        coordinator=coordinator,
+                        device_id=device_id,
+                        channel=idx,
+                    )
+                )
+            return entities
+
+        # Gen2 format: switch:0, switch:1, etc.
+        for key in status:
+            if key.startswith("switch:"):
+                try:
+                    channel = int(key.split(":")[1])
+                    entities.append(
+                        ShellyIntegratorSwitch(
+                            coordinator=coordinator,
+                            device_id=device_id,
+                            channel=channel,
+                        )
+                    )
+                except (ValueError, IndexError):
+                    pass
+
+        # If no switches found but device type suggests it has relay, create default
+        if not entities and ("1pm" in device_type.lower() or "1" in device_type.lower() or "plug" in device_type.lower()):
+            _LOGGER.info("Creating default switch for device %s (type: %s)", device_id, device_type)
             entities.append(
                 ShellyIntegratorSwitch(
                     coordinator=coordinator,
                     device_id=device_id,
-                    channel=idx,
+                    channel=0,
                 )
             )
+
         return entities
 
     @callback
@@ -95,14 +126,19 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         device_data = self.coordinator.devices.get(self._device_id, {})
-        device_info = device_data.get("device_info", {})
+        device_type = device_data.get("device_type", "")
+        device_code = device_data.get("device_code", "")
+        status = device_data.get("status", {})
+
+        # Try to get name from sys component (Gen2) or device_info
+        sys_info = status.get("sys", {})
+        name = sys_info.get("device", {}).get("name") or f"Shelly {self._device_id}"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=device_info.get("name", f"Shelly {self._device_id}"),
+            name=name,
             manufacturer="Shelly",
-            model=device_info.get("model", "Unknown"),
-            sw_version=device_info.get("fw_version"),
+            model=device_type or device_code or "Unknown",
         )
 
     @property
@@ -110,10 +146,16 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         """Return true if switch is on."""
         device = self.coordinator.devices.get(self._device_id, {})
         status = device.get("status", {})
-        relays = status.get("relays", [])
 
-        if len(relays) > self._channel:
+        # Gen1 format: relays array
+        relays = status.get("relays", [])
+        if relays and len(relays) > self._channel:
             return relays[self._channel].get("ison", False)
+
+        # Gen2 format: switch:N
+        switch_key = f"switch:{self._channel}"
+        if switch_key in status:
+            return status[switch_key].get("output", False)
 
         return None
 
@@ -127,8 +169,9 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         """Turn the switch on."""
         await self.coordinator.send_command(
             device_id=self._device_id,
-            method="relay",
-            params={"id": self._channel, "on": True},
+            cmd="relay",
+            channel=self._channel,
+            action="on",
         )
         # Optimistic update
         self._update_local_state(True)
@@ -137,8 +180,9 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         """Turn the switch off."""
         await self.coordinator.send_command(
             device_id=self._device_id,
-            method="relay",
-            params={"id": self._channel, "on": False},
+            cmd="relay",
+            channel=self._channel,
+            action="off",
         )
         # Optimistic update
         self._update_local_state(False)

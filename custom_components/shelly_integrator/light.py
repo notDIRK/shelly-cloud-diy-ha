@@ -144,26 +144,24 @@ class ShellyIntegratorLight(CoordinatorEntity[ShellyIntegratorCoordinator], Ligh
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
-        params: dict[str, Any] = {"id": self._channel, "on": True}
-
-        if ATTR_BRIGHTNESS in kwargs:
-            # Convert HA brightness (0-255) to Shelly (0-100)
-            params["brightness"] = round(kwargs[ATTR_BRIGHTNESS] * 100 / 255)
-
+        # Note: Shelly Integrator API doesn't support brightness in CommandRequest
+        # For now, just turn on - brightness needs JRPC method
         await self.coordinator.send_command(
             device_id=self._device_id,
-            method="light",
-            params=params,
+            cmd="light",
+            channel=self._channel,
+            action="on",
         )
         # Optimistic update
-        self._update_local_state(True, params.get("brightness"))
+        self._update_local_state(True, None)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         await self.coordinator.send_command(
             device_id=self._device_id,
-            method="light",
-            params={"id": self._channel, "on": False},
+            cmd="light",
+            channel=self._channel,
+            action="off",
         )
         # Optimistic update
         self._update_local_state(False, None)
