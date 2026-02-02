@@ -388,6 +388,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cmd: str,
         channel: int = 0,
         action: str = "toggle",
+        params: dict | None = None,
         timeout: float = 10.0,
     ) -> dict | None:
         """Send command via WebSocket using Shelly:CommandRequest format.
@@ -396,7 +397,8 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_id: Device ID
             cmd: Command type ("relay", "light", "roller")
             channel: Device channel (default 0)
-            action: Action to perform ("on", "off", "toggle" for relay/light)
+            action: Action to perform ("on", "off", "toggle", "open", "close", "stop", "to_pos")
+            params: Additional parameters (e.g., {"pos": 50} for roller position)
             timeout: Response timeout
         """
         host = self._device_host_map.get(device_id)
@@ -412,6 +414,18 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._message_id += 1
         trid = self._message_id
 
+        # Build params based on command type
+        cmd_params = {"id": channel}
+        
+        if cmd == "roller":
+            # Roller commands: open, close, stop, to_pos
+            cmd_params["go"] = action
+            if params:
+                cmd_params.update(params)
+        else:
+            # Relay/light commands: on, off, toggle
+            cmd_params["turn"] = action
+
         # Build command in Shelly Integrator API format
         command = {
             "event": "Shelly:CommandRequest",
@@ -419,10 +433,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "deviceId": device_id,
             "data": {
                 "cmd": cmd,
-                "params": {
-                    "id": channel,
-                    "turn": action,
-                }
+                "params": cmd_params,
             }
         }
 

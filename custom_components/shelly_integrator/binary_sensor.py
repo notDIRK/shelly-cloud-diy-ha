@@ -1,26 +1,14 @@
-"""Sensor platform for Shelly Integrator."""
+"""Binary sensor platform for Shelly Integrator."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
-    PERCENTAGE,
-    UnitOfElectricCurrent,
-    UnitOfElectricPotential,
-    UnitOfEnergy,
-    UnitOfIlluminance,
-    UnitOfPower,
-    UnitOfReactivePower,
-    UnitOfTemperature,
-)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -33,33 +21,18 @@ from .entity_factory import EntityType, discover_entities, get_status_value
 
 _LOGGER = logging.getLogger(__name__)
 
-# Map device_class strings to SensorDeviceClass
+# Map device_class strings to BinarySensorDeviceClass
 DEVICE_CLASS_MAP = {
-    "power": SensorDeviceClass.POWER,
-    "energy": SensorDeviceClass.ENERGY,
-    "voltage": SensorDeviceClass.VOLTAGE,
-    "current": SensorDeviceClass.CURRENT,
-    "temperature": SensorDeviceClass.TEMPERATURE,
-    "humidity": SensorDeviceClass.HUMIDITY,
-    "battery": SensorDeviceClass.BATTERY,
-    "illuminance": SensorDeviceClass.ILLUMINANCE,
-    "gas": SensorDeviceClass.GAS,
-    "reactive_power": SensorDeviceClass.REACTIVE_POWER,
-    "power_factor": SensorDeviceClass.POWER_FACTOR,
-}
-
-# Map unit strings to HA constants
-UNIT_MAP = {
-    "W": UnitOfPower.WATT,
-    "Wh": UnitOfEnergy.WATT_HOUR,
-    "kWh": UnitOfEnergy.KILO_WATT_HOUR,
-    "V": UnitOfElectricPotential.VOLT,
-    "A": UnitOfElectricCurrent.AMPERE,
-    "°C": UnitOfTemperature.CELSIUS,
-    "%": PERCENTAGE,
-    "lx": UnitOfIlluminance.LUX,
-    "ppm": CONCENTRATION_PARTS_PER_MILLION,
-    "var": UnitOfReactivePower.VOLT_AMPERE_REACTIVE,
+    "door": BinarySensorDeviceClass.DOOR,
+    "window": BinarySensorDeviceClass.WINDOW,
+    "motion": BinarySensorDeviceClass.MOTION,
+    "moisture": BinarySensorDeviceClass.MOISTURE,
+    "smoke": BinarySensorDeviceClass.SMOKE,
+    "heat": BinarySensorDeviceClass.HEAT,
+    "problem": BinarySensorDeviceClass.PROBLEM,
+    "power": BinarySensorDeviceClass.POWER,
+    "vibration": BinarySensorDeviceClass.VIBRATION,
+    "gas": BinarySensorDeviceClass.GAS,
 }
 
 
@@ -68,66 +41,63 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Shelly Integrator sensors."""
+    """Set up Shelly Integrator binary sensors."""
     coordinator: ShellyIntegratorCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Track which sensor entities have been created (by unique_id)
-    created_sensors: set[str] = set()
+    # Track which entities have been created (by unique_id)
+    created_entities: set[str] = set()
 
-    def _create_sensors(device_id: str) -> list[SensorEntity]:
-        """Create sensor entities for a device based on its status."""
-        entities: list[SensorEntity] = []
+    def _create_binary_sensors(device_id: str) -> list[BinarySensorEntity]:
+        """Create binary sensor entities for a device based on its status."""
+        entities: list[BinarySensorEntity] = []
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
         device_code = device_data.get("device_code", "")
         
         if not status:
-            _LOGGER.debug("No status data for device %s, skipping sensor creation", device_id)
+            _LOGGER.debug("No status data for device %s, skipping binary sensor creation", device_id)
             return entities
 
         # Discover all possible entities
         discovered = discover_entities(status, device_code)
         
-        # Filter for sensors only
+        # Filter for binary sensors only
         for entity_def in discovered:
-            if entity_def.entity_type != EntityType.SENSOR:
+            if entity_def.entity_type != EntityType.BINARY_SENSOR:
                 continue
             
-            unique_id = f"{device_id}_{entity_def.sensor_type}_{entity_def.channel}"
-            if unique_id in created_sensors:
+            unique_id = f"{device_id}_binary_{entity_def.key.replace('.', '_').replace(':', '_')}"
+            if unique_id in created_entities:
                 continue
             
-            created_sensors.add(unique_id)
+            created_entities.add(unique_id)
             entities.append(
-                ShellySensor(
+                ShellyBinarySensor(
                     coordinator=coordinator,
                     device_id=device_id,
                     key=entity_def.key,
                     channel=entity_def.channel,
-                    sensor_type=entity_def.sensor_type or "unknown",
-                    name_suffix=entity_def.name_suffix or "Sensor",
+                    name_suffix=entity_def.name_suffix or "Binary Sensor",
                     device_class=entity_def.device_class,
-                    unit=entity_def.unit,
-                    icon=entity_def.icon,
                 )
             )
         
         if entities:
-            _LOGGER.info("Creating %d sensor entities for device %s", len(entities), device_id)
+            _LOGGER.info("Creating %d binary sensor entities for device %s", len(entities), device_id)
         
         return entities
 
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for a newly discovered device."""
-        entities = _create_sensors(device_id)
+        entities = _create_binary_sensors(device_id)
         if entities:
             async_add_entities(entities)
 
     # Add existing devices
-    entities: list[SensorEntity] = []
+    entities: list[BinarySensorEntity] = []
     for device_id in list(coordinator.devices.keys()):
-        entities.extend(_create_sensors(device_id))
+        entities.extend(_create_binary_sensors(device_id))
 
     if entities:
         async_add_entities(entities)
@@ -138,8 +108,8 @@ async def async_setup_entry(
     )
 
 
-class ShellySensor(CoordinatorEntity[ShellyIntegratorCoordinator], SensorEntity):
-    """Generic Shelly sensor entity."""
+class ShellyBinarySensor(CoordinatorEntity[ShellyIntegratorCoordinator], BinarySensorEntity):
+    """Generic Shelly binary sensor entity."""
 
     _attr_has_entity_name = True
 
@@ -149,37 +119,20 @@ class ShellySensor(CoordinatorEntity[ShellyIntegratorCoordinator], SensorEntity)
         device_id: str,
         key: str,
         channel: int,
-        sensor_type: str,
         name_suffix: str,
         device_class: str | None,
-        unit: str | None,
-        icon: str | None,
     ) -> None:
-        """Initialize the sensor."""
+        """Initialize the binary sensor."""
         super().__init__(coordinator)
         self._device_id = device_id
         self._key = key
         self._channel = channel
-        self._sensor_type = sensor_type
         
-        self._attr_unique_id = f"{device_id}_{sensor_type}_{channel}"
+        self._attr_unique_id = f"{device_id}_binary_{key.replace('.', '_').replace(':', '_')}"
         self._attr_name = name_suffix
         
         if device_class and device_class in DEVICE_CLASS_MAP:
             self._attr_device_class = DEVICE_CLASS_MAP[device_class]
-            # Most sensors are measurements except energy which is total_increasing
-            if device_class == "energy":
-                self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-            elif device_class in ("power", "voltage", "current", "temperature", 
-                                   "humidity", "illuminance", "gas", "reactive_power",
-                                   "power_factor"):
-                self._attr_state_class = SensorStateClass.MEASUREMENT
-        
-        if unit and unit in UNIT_MAP:
-            self._attr_native_unit_of_measurement = UNIT_MAP[unit]
-        
-        if icon:
-            self._attr_icon = icon
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -224,17 +177,23 @@ class ShellySensor(CoordinatorEntity[ShellyIntegratorCoordinator], SensorEntity)
         return device.get("online", False)
 
     @property
-    def native_value(self) -> float | int | str | None:
-        """Return the sensor value."""
+    def is_on(self) -> bool | None:
+        """Return true if the binary sensor is on."""
         device = self.coordinator.devices.get(self._device_id, {})
         status = device.get("status", {})
         
         value = get_status_value(status, self._key)
         
-        # Handle special cases
-        if self._sensor_type == "energy" and "meters" in self._key:
-            # Gen1 meters return Watt-minutes, convert to Wh
-            if value is not None:
-                return value / 60.0
+        if value is None:
+            return None
         
-        return value
+        # Handle different value types
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value > 0
+        if isinstance(value, str):
+            # For door/window sensors: "open" = True, "close" = False
+            return value.lower() in ("open", "true", "on", "1")
+        
+        return None

@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ShellyIntegratorCoordinator, SIGNAL_NEW_DEVICE
+from .entity_factory import EntityType, discover_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,77 +27,61 @@ async def async_setup_entry(
     """Set up Shelly Integrator switches."""
     coordinator: ShellyIntegratorCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Track which devices already have entities
-    known_devices: set[str] = set()
+    # Track which entities have been created (by unique_id)
+    created_entities: set[str] = set()
 
     def _create_switches(device_id: str) -> list[ShellyIntegratorSwitch]:
-        """Create switch entities for a device."""
-        entities = []
+        """Create switch entities for a device based on its status."""
+        entities: list[ShellyIntegratorSwitch] = []
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
-        device_type = device_data.get("device_type", "")
-
-        # Gen1 format: relays array
-        relays = status.get("relays", [])
-        if relays:
-            for idx, _ in enumerate(relays):
-                entities.append(
-                    ShellyIntegratorSwitch(
-                        coordinator=coordinator,
-                        device_id=device_id,
-                        channel=idx,
-                    )
-                )
+        device_code = device_data.get("device_code", "")
+        
+        if not status:
+            _LOGGER.debug("No status data for device %s, skipping switch creation", device_id)
             return entities
 
-        # Gen2 format: switch:0, switch:1, etc.
-        for key in status:
-            if key.startswith("switch:"):
-                try:
-                    channel = int(key.split(":")[1])
-                    entities.append(
-                        ShellyIntegratorSwitch(
-                            coordinator=coordinator,
-                            device_id=device_id,
-                            channel=channel,
-                        )
-                    )
-                except (ValueError, IndexError):
-                    pass
-
-        # If no switches found but device type suggests it has relay, create default
-        if not entities and ("1pm" in device_type.lower() or "1" in device_type.lower() or "plug" in device_type.lower()):
-            _LOGGER.info("Creating default switch for device %s (type: %s)", device_id, device_type)
+        # Discover all possible entities
+        discovered = discover_entities(status, device_code)
+        
+        # Filter for switches only
+        for entity_def in discovered:
+            if entity_def.entity_type != EntityType.SWITCH:
+                continue
+            
+            unique_id = f"{device_id}_switch_{entity_def.channel}"
+            if unique_id in created_entities:
+                continue
+            
+            created_entities.add(unique_id)
             entities.append(
                 ShellyIntegratorSwitch(
                     coordinator=coordinator,
                     device_id=device_id,
-                    channel=0,
+                    channel=entity_def.channel,
+                    key=entity_def.key,
                 )
             )
-
+        
+        if entities:
+            _LOGGER.info("Creating %d switch entities for device %s", len(entities), device_id)
+        
         return entities
 
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for a newly discovered device."""
-        if device_id in known_devices:
-            return
-
-        known_devices.add(device_id)
         entities = _create_switches(device_id)
         if entities:
             async_add_entities(entities)
 
     # Add existing devices
-    for device_id in coordinator.devices:
-        known_devices.add(device_id)
-
-    entities = []
-    for device_id in known_devices:
+    entities: list[ShellyIntegratorSwitch] = []
+    for device_id in list(coordinator.devices.keys()):
         entities.extend(_create_switches(device_id))
 
-    async_add_entities(entities)
+    if entities:
+        async_add_entities(entities)
 
     # Listen for new devices
     entry.async_on_unload(
@@ -114,49 +99,53 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         coordinator: ShellyIntegratorCoordinator,
         device_id: str,
         channel: int,
+        key: str,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator)
         self._device_id = device_id
         self._channel = channel
+        self._key = key  # e.g., "relays.0" or "switch:0"
+        self._is_gen2 = key.startswith("switch:")
+        
         self._attr_unique_id = f"{device_id}_switch_{channel}"
-        # Entity name is relative to device, so just "Switch" or "Switch 1" for multi-channel
+        # Entity name is relative to device
         self._attr_name = "Switch" if channel == 0 else f"Switch {channel + 1}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         device_data = self.coordinator.devices.get(self._device_id, {})
-        device_type = device_data.get("device_type", "")
-        device_code = device_data.get("device_code", "")
-        device_name = device_data.get("name")
         status = device_data.get("status", {})
-
-        # Try multiple sources for device name
-        if not device_name:
+        
+        # Try to get friendly name
+        name = device_data.get("name")
+        if not name:
             # Gen2: name in sys.device
-            sys_info = status.get("sys", {})
-            device_name = sys_info.get("device", {}).get("name")
-
-        # Fall back to device type + short ID
-        if not device_name:
-            # Try to get device type from Gen1 getinfo
-            if not device_type:
-                getinfo = status.get("getinfo", {}).get("fw_info", {})
-                device_type = getinfo.get("device", "").split("-")[0]  # e.g., "shellyem"
-
+            sys_info = status.get("sys", {}).get("device", {})
+            name = sys_info.get("name")
+        if not name:
+            # Gen1: name from settings
+            settings = device_data.get("settings", {})
+            name = settings.get("name")
+        if not name:
+            # Gen1: device from getinfo
+            getinfo = status.get("getinfo", {}).get("fw_info", {})
+            name = getinfo.get("device")
+        
+        if not name:
+            # Fallback to device code + short ID
+            device_code = device_data.get("device_code", "")
             short_id = self._device_id[-6:] if len(self._device_id) > 6 else self._device_id
-            model_name = device_type or device_code or "Shelly"
-            # Capitalize model name for readability
-            if model_name.startswith("shelly"):
-                model_name = model_name.replace("shelly", "Shelly ")
-            device_name = f"{model_name} {short_id}"
+            name = f"Shelly {device_code or ''} {short_id}".strip()
+
+        model = device_data.get("device_code") or device_data.get("device_type") or "Unknown"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=device_name,
+            name=name,
             manufacturer="Shelly",
-            model=device_type or device_code or "Unknown",
+            model=model,
         )
 
     @property
@@ -165,15 +154,15 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         device = self.coordinator.devices.get(self._device_id, {})
         status = device.get("status", {})
 
-        # Gen1 format: relays array
-        relays = status.get("relays", [])
-        if relays and len(relays) > self._channel:
-            return relays[self._channel].get("ison", False)
-
-        # Gen2 format: switch:N
-        switch_key = f"switch:{self._channel}"
-        if switch_key in status:
-            return status[switch_key].get("output", False)
+        if self._is_gen2:
+            # Gen2 format: switch:N
+            switch_data = status.get(self._key, {})
+            return switch_data.get("output", False)
+        else:
+            # Gen1 format: relays array
+            relays = status.get("relays", [])
+            if len(relays) > self._channel:
+                return relays[self._channel].get("ison", False)
 
         return None
 
@@ -209,11 +198,18 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         """Update local state optimistically."""
         device = self.coordinator.devices.get(self._device_id, {})
         status = device.get("status", {})
-        relays = status.get("relays", [])
 
-        if len(relays) > self._channel:
-            relays[self._channel]["ison"] = is_on
-            self.async_write_ha_state()
+        if self._is_gen2:
+            # Gen2 format
+            if self._key in status:
+                status[self._key]["output"] = is_on
+        else:
+            # Gen1 format
+            relays = status.get("relays", [])
+            if len(relays) > self._channel:
+                relays[self._channel]["ison"] = is_on
+        
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:

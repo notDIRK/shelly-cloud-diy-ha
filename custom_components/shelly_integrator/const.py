@@ -22,7 +22,13 @@ TOKEN_REFRESH_INTERVAL = 23 * 60 * 60
 WS_RECONNECT_DELAY = 5
 
 # Platforms
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.LIGHT]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.COVER,
+    Platform.LIGHT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 # Webhook
 WEBHOOK_ID = "shelly_integrator_callback"
