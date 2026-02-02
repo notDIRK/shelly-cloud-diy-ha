@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shelly Integrator",
+        "description": "Enter your Shelly Integrator API token to connect to Shelly Cloud.",
+        "data": {
+          "integrator_token": "API Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Shelly Cloud API",
+      "invalid_auth": "Invalid API token",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Shelly Integrator is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "power": {
+        "name": "Power"
+      },
+      "energy": {
+        "name": "Energy"
+      }
+    },
+    "switch": {
+      "relay": {
+        "name": "Relay"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      }
+    }
+  }
+}

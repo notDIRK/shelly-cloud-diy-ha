@@ -1,0 +1,12 @@
+{
+  "domain": "shelly_integrator",
+  "name": "Shelly Integrator",
+  "codeowners": ["@engesin"],
+  "config_flow": true,
+  "dependencies": ["webhook"],
+  "documentation": "https://github.com/engesin/shelly-integrator-ha",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/engesin/shelly-integrator-ha/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "0.2.0"
+}
