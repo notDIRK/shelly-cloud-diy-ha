@@ -119,8 +119,9 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         super().__init__(coordinator)
         self._device_id = device_id
         self._channel = channel
-        self._attr_unique_id = f"{device_id}_relay_{channel}"
-        self._attr_name = f"Relay {channel}"
+        self._attr_unique_id = f"{device_id}_switch_{channel}"
+        # Entity name is relative to device, so just "Switch" or "Switch 1" for multi-channel
+        self._attr_name = "Switch" if channel == 0 else f"Switch {channel + 1}"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -128,15 +129,24 @@ class ShellyIntegratorSwitch(CoordinatorEntity[ShellyIntegratorCoordinator], Swi
         device_data = self.coordinator.devices.get(self._device_id, {})
         device_type = device_data.get("device_type", "")
         device_code = device_data.get("device_code", "")
+        device_name = device_data.get("name")
         status = device_data.get("status", {})
 
-        # Try to get name from sys component (Gen2) or device_info
-        sys_info = status.get("sys", {})
-        name = sys_info.get("device", {}).get("name") or f"Shelly {self._device_id}"
+        # Try multiple sources for device name
+        if not device_name:
+            # Gen2: name in sys.device
+            sys_info = status.get("sys", {})
+            device_name = sys_info.get("device", {}).get("name")
+
+        # Fall back to device type + short ID
+        if not device_name:
+            short_id = self._device_id[-6:] if len(self._device_id) > 6 else self._device_id
+            model_name = device_type or device_code or "Shelly"
+            device_name = f"{model_name} {short_id}"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=name,
+            name=device_name,
             manufacturer="Shelly",
             model=device_type or device_code or "Unknown",
         )

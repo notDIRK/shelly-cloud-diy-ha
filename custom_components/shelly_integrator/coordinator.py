@@ -137,6 +137,27 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self._ws_connections.pop(host, None)
 
+    async def _request_device_settings(self, device_id: str, host: str) -> None:
+        """Request device settings to get the device name."""
+        try:
+            self._message_id += 1
+            trid = self._message_id
+
+            ws = self._ws_connections.get(host)
+            if ws:
+                command = {
+                    "event": "Integrator:ActionRequest",
+                    "trid": trid,
+                    "data": {
+                        "action": "DeviceGetSettings",
+                        "deviceId": device_id,
+                    }
+                }
+                _LOGGER.info("Requesting settings for %s", device_id)
+                await ws.send_json(command)
+        except Exception as err:
+            _LOGGER.error("Failed to request settings for %s: %s", device_id, err)
+
     async def _request_device_statuses(self, host: str) -> None:
         """Request status for all devices on this host using DeviceVerify action."""
         devices_on_host = [
@@ -206,7 +227,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.error("Failed to parse message: %s", err)
 
     async def _handle_action_response(self, message: dict, host: str) -> None:
-        """Handle Integrator:ActionResponse (DeviceVerify response)."""
+        """Handle Integrator:ActionResponse (DeviceVerify/DeviceGetSettings response)."""
         data = message.get("data", {})
         result = data.get("result")
         device_id = data.get("deviceId")
@@ -229,23 +250,50 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_type = data.get("deviceType")
             device_code = data.get("deviceCode")
             device_status = data.get("deviceStatus", {})
+            device_settings = data.get("deviceSettings", {})
             access_groups = data.get("accessGroups", "00")
+
+            # Extract device name from settings
+            device_name = None
+            if device_settings:
+                # Gen2: name in device settings
+                device_name = device_settings.get("name")
+                # Gen1: name might be in different location
+                if not device_name and "device" in device_settings:
+                    device_name = device_settings.get("device", {}).get("hostname")
+
+                _LOGGER.info("Device %s settings received: name=%s", device_id, device_name)
 
             is_new = device_id not in self.devices
             self._device_host_map[device_id] = host
 
-            self.devices[device_id] = {
-                "status": device_status,
-                "device_type": device_type,
-                "device_code": device_code,
-                "access_groups": access_groups,
-                "online": bool(device_status),  # Online if we got status
-            }
+            # Update or create device entry
+            if device_id in self.devices:
+                # Update existing device with new info
+                if device_type:
+                    self.devices[device_id]["device_type"] = device_type
+                if device_code:
+                    self.devices[device_id]["device_code"] = device_code
+                if device_name:
+                    self.devices[device_id]["name"] = device_name
+                if device_status:
+                    self.devices[device_id]["status"] = device_status
+                    self.devices[device_id]["online"] = True
+                if access_groups:
+                    self.devices[device_id]["access_groups"] = access_groups
+            else:
+                self.devices[device_id] = {
+                    "status": device_status,
+                    "device_type": device_type,
+                    "device_code": device_code,
+                    "name": device_name,
+                    "access_groups": access_groups,
+                    "online": bool(device_status),
+                }
 
             _LOGGER.info(
-                "Device %s verified: type=%s, code=%s, online=%s, access=%s, status_keys=%s",
-                device_id, device_type, device_code, bool(device_status), access_groups,
-                list(device_status.keys()) if device_status else []
+                "Device %s verified: name=%s, type=%s, code=%s, online=%s",
+                device_id, device_name, device_type, device_code, bool(device_status)
             )
 
             self.async_set_updated_data(self.devices)
@@ -262,15 +310,45 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if device_id:
             is_new = device_id not in self.devices
             self._device_host_map[device_id] = host
+
+            # Extract device info from status
+            device_name = None
+            device_type = None
+
+            # Gen2: name in sys.device.name or from getinfo
+            if "sys" in status:
+                sys_info = status.get("sys", {})
+                device_info = sys_info.get("device", {})
+                device_name = device_info.get("name")
+
+            # Gen1: device info in getinfo
+            if "getinfo" in status:
+                fw_info = status.get("getinfo", {}).get("fw_info", {})
+                device_type = fw_info.get("device", "").split("-")[0]  # e.g., "shellyem"
+
+            # Get code/type from status
+            device_code = status.get("code")  # Gen2 has this
+
             self.devices[device_id] = {
                 **self.devices.get(device_id, {}),
                 "status": status,
                 "online": True,
             }
-            _LOGGER.info("Device %s status changed: %s", device_id, status)
+
+            # Store device name/type if found
+            if device_name:
+                self.devices[device_id]["name"] = device_name
+            if device_type:
+                self.devices[device_id]["device_type"] = device_type
+            if device_code:
+                self.devices[device_id]["device_code"] = device_code
+
+            _LOGGER.info("Device %s status changed (name=%s, type=%s)", device_id, device_name, device_type or device_code)
             self.async_set_updated_data(self.devices)
 
             if is_new:
+                # Request device settings to get the name
+                await self._request_device_settings(device_id, host)
                 async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
 
     async def _handle_online(self, message: dict, host: str) -> None:

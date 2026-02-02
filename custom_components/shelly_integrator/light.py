@@ -103,14 +103,26 @@ class ShellyIntegratorLight(CoordinatorEntity[ShellyIntegratorCoordinator], Ligh
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         device_data = self.coordinator.devices.get(self._device_id, {})
-        device_info = device_data.get("device_info", {})
+        device_type = device_data.get("device_type", "")
+        device_code = device_data.get("device_code", "")
+        device_name = device_data.get("name")
+        status = device_data.get("status", {})
+
+        # Try multiple sources for device name
+        if not device_name:
+            sys_info = status.get("sys", {})
+            device_name = sys_info.get("device", {}).get("name")
+
+        if not device_name:
+            short_id = self._device_id[-6:] if len(self._device_id) > 6 else self._device_id
+            model_name = device_type or device_code or "Shelly"
+            device_name = f"{model_name} {short_id}"
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=device_info.get("name", f"Shelly {self._device_id}"),
+            name=device_name,
             manufacturer="Shelly",
-            model=device_info.get("model", "Unknown"),
-            sw_version=device_info.get("fw_version"),
+            model=device_type or device_code or "Unknown",
         )
 
     @property
