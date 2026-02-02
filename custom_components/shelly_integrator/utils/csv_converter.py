@@ -127,17 +127,28 @@ def _write_file_sync(output_path: Path, content: str) -> None:
 
 
 def build_statistic_id(hostname: str, channel: int) -> str:
-    """Build a statistic ID from hostname and channel.
+    """Build a statistic ID matching the existing HA entity.
+    
+    Maps to existing HA entities created by shelly_integrator:
+    - Channel 0 → sensor.shellyem_<mac>_energy
+    - Channel 1 → sensor.shellyem_<mac>_energy_2
+    
+    Uses '.' separator (internal statistic) to match existing entity,
+    which allows delta import to work immediately.
     
     Args:
         hostname: Device hostname (e.g., shellyem-48E729689B2B)
         channel: Channel number (0-indexed)
         
     Returns:
-        Statistic ID (e.g., sensor:shellyem_48e729689b2b_ch1_energy)
+        Statistic ID matching existing HA entity
+        (e.g., sensor.shellyem_48e729689b2b_energy)
     """
     safe_hostname = hostname.lower().replace("-", "_")
-    return f"sensor:{safe_hostname}_ch{channel + 1}_energy"
+    if channel == 0:
+        return f"sensor.{safe_hostname}_energy"
+    else:
+        return f"sensor.{safe_hostname}_energy_{channel + 1}"
 
 
 def build_output_filename(hostname: str, channel: int) -> str:
