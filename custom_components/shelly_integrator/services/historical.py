@@ -70,6 +70,8 @@ class HistoricalDataService:
         output_files = await self.sync_data(gateway_url, device_id)
 
         if output_files:
+            # Auto-import after conversion
+            await self._auto_import_statistics(output_files)
             self._notifications.show_historical_success(output_files)
         else:
             self._notifications.show_historical_error(
