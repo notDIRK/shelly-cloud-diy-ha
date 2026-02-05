@@ -143,6 +143,7 @@ class HistoricalDataService:
             # Build StatisticMetaData
             from homeassistant.components.recorder.models import (
                 StatisticData,
+                StatisticMeanType,
                 StatisticMetaData,
             )
             
@@ -153,6 +154,7 @@ class HistoricalDataService:
                 unit_of_measurement="Wh",
                 has_sum=True,
                 has_mean=False,
+                mean_type=StatisticMeanType.NONE,
             )
             
             # Convert to StatisticData objects with cumulative sum
