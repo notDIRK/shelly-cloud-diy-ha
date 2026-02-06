@@ -6,10 +6,13 @@ Uses Home Assistant's native statistics API for direct import.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from homeassistant.components.recorder.statistics import async_import_statistics
+from homeassistant.components.recorder.statistics import (
+    async_import_statistics,
+    statistics_during_period,
+)
 from homeassistant.helpers.event import async_track_time_interval
 
 from ..const import CONF_LOCAL_GATEWAY_URL, HISTORICAL_SYNC_INTERVAL
@@ -17,6 +20,8 @@ from ..utils.csv_converter import (
     build_statistic_id,
     parse_shelly_csv_for_import,
 )
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
 from ..utils.http import fetch_csv_from_gateway
 from .notifications import NotificationService
 
@@ -119,6 +124,91 @@ class HistoricalDataService:
         except Exception as err:
             _LOGGER.error("Auto sync failed: %s", err)
 
+    async def _get_ha_current_sum(self, statistic_id: str) -> float:
+        """Get HA's current cumulative sum for an entity.
+        
+        Args:
+            statistic_id: The entity ID
+            
+        Returns:
+            Current cumulative sum, or 0 if not found
+        """
+        try:
+            # Query the last 24 hours of statistics to find the latest sum
+            start_time = datetime.now(timezone.utc) - timedelta(hours=24)
+            
+            stats = await statistics_during_period(
+                self._hass,
+                start_time=start_time,
+                end_time=None,
+                statistic_ids={statistic_id},
+                period="hour",
+                units=None,
+                types={"sum"},
+            )
+            
+            if statistic_id in stats and stats[statistic_id]:
+                # Get the latest sum value
+                latest = stats[statistic_id][-1]
+                ha_sum = latest.get("sum", 0) or 0
+                _LOGGER.debug(
+                    "Found HA current sum for %s: %.2f Wh", 
+                    statistic_id, ha_sum
+                )
+                return ha_sum
+                
+        except Exception as err:
+            _LOGGER.warning("Could not get HA current sum: %s", err)
+        
+        return 0.0
+
+    async def _get_ha_sum_before_date(
+        self, statistic_id: str, before_dt: datetime
+    ) -> float | None:
+        """Get HA's latest cumulative sum before a given datetime.
+
+        Used to find the sum at midnight (start of today) so that imported
+        historical data aligns with the recorder's live tracking without
+        causing a sum discontinuity.
+
+        Args:
+            statistic_id: The entity ID
+            before_dt: Get the latest sum before this time (UTC aware)
+
+        Returns:
+            Latest sum before the datetime, or None if not found
+        """
+        try:
+            # Query a 48-hour window before the target to handle brief
+            # HA downtime or gaps in statistics.
+            query_start = before_dt - timedelta(hours=48)
+
+            stats = await statistics_during_period(
+                self._hass,
+                start_time=query_start,
+                end_time=before_dt,
+                statistic_ids={statistic_id},
+                period="hour",
+                units=None,
+                types={"sum"},
+            )
+
+            if statistic_id in stats and stats[statistic_id]:
+                latest = stats[statistic_id][-1]
+                ha_sum = latest.get("sum", 0) or 0
+                _LOGGER.debug(
+                    "Found HA sum before %s for %s: %.2f Wh",
+                    before_dt, statistic_id, ha_sum
+                )
+                return ha_sum
+
+        except Exception as err:
+            _LOGGER.warning(
+                "Could not get HA sum before %s: %s", before_dt, err
+            )
+
+        return None
+
     async def _import_statistics_native(
         self,
         statistic_id: str,
@@ -128,6 +218,9 @@ class HistoricalDataService:
         
         This bypasses the import_statistics HACS integration and its
         65-minute timestamp restriction.
+        
+        IMPORTANT: Aligns cumulative sum with HA's current baseline to
+        prevent negative daily values.
         
         Args:
             statistic_id: The entity ID (e.g., sensor.shellyem_xxx_energy)
@@ -140,13 +233,74 @@ class HistoricalDataService:
             return False
 
         try:
-            # Build StatisticMetaData
             from homeassistant.components.recorder.models import (
                 StatisticData,
                 StatisticMeanType,
                 StatisticMetaData,
             )
-            
+
+            # STEP 1: Filter out today's data to prevent conflict with
+            # HA's recorder.  The recorder actively tracks today's energy
+            # from the live sensor.  Importing over it causes a sum
+            # discontinuity (the recorder's in-memory cumulative sum
+            # diverges from the imported database value), which results
+            # in wrong — often very negative — daily consumption.
+            start_of_today_utc = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            historical_data = [
+                (dt, delta) for dt, delta in data if dt < start_of_today_utc
+            ]
+
+            if not historical_data:
+                _LOGGER.debug(
+                    "No historical data to import for %s "
+                    "(all %d data points are from today)",
+                    statistic_id, len(data),
+                )
+                return False
+
+            _LOGGER.info(
+                "Filtered data for %s: %d historical / %d today (skipped)",
+                statistic_id,
+                len(historical_data),
+                len(data) - len(historical_data),
+            )
+
+            # STEP 2: Get HA's sum at the boundary (start of today).
+            # This is the anchor between imported historical data and
+            # the recorder's live tracking, preventing sum jumps at
+            # midnight that cause wrong daily consumption values.
+            ha_midnight_sum = await self._get_ha_sum_before_date(
+                statistic_id, start_of_today_utc
+            )
+
+            if ha_midnight_sum is None:
+                # First-time import or no prior statistics — fall back
+                # to the current sum.  Slightly inaccurate for today
+                # but self-corrects on the next daily sync.
+                ha_midnight_sum = await self._get_ha_current_sum(statistic_id)
+                _LOGGER.info(
+                    "No midnight statistics found for %s, "
+                    "using current sum as fallback: %.2f Wh",
+                    statistic_id, ha_midnight_sum,
+                )
+
+            # STEP 3: Calculate total from filtered historical data
+            shelly_total = sum(delta for _, delta in historical_data)
+
+            # STEP 4: Calculate alignment offset
+            # Last imported point (yesterday's last hour) should match
+            # the HA midnight sum so today's recorder data connects
+            # seamlessly.
+            offset = ha_midnight_sum - shelly_total
+
+            _LOGGER.info(
+                "Sum alignment for %s: midnight=%.2f, Shelly=%.2f, offset=%.2f",
+                statistic_id, ha_midnight_sum, shelly_total, offset,
+            )
+
+            # STEP 5: Build metadata
             metadata = StatisticMetaData(
                 statistic_id=statistic_id,
                 source="recorder",
@@ -156,12 +310,12 @@ class HistoricalDataService:
                 has_mean=False,
                 mean_type=StatisticMeanType.NONE,
             )
-            
-            # Convert to StatisticData objects with cumulative sum
+
+            # STEP 6: Build statistics with aligned cumulative sum
             statistics: list[StatisticData] = []
-            cumulative_sum = 0.0
-            
-            for dt_utc, delta in data:
+            cumulative_sum = offset  # Start from offset, not 0!
+
+            for dt_utc, delta in historical_data:
                 cumulative_sum += delta
                 statistics.append(
                     StatisticData(
@@ -170,13 +324,14 @@ class HistoricalDataService:
                         state=delta,
                     )
                 )
-            
-            # Import using HA's native API - no 65-minute restriction!
+
+            # STEP 7: Import using HA's native API
             async_import_statistics(self._hass, metadata, statistics)
-            
+
             _LOGGER.info(
-                "Imported %d statistics for %s (total: %.2f Wh)",
-                len(statistics), statistic_id, cumulative_sum
+                "Imported %d statistics for %s "
+                "(final sum: %.2f Wh, aligned with midnight)",
+                len(statistics), statistic_id, cumulative_sum,
             )
             return True
             
@@ -230,9 +385,10 @@ class HistoricalDataService:
             device_code = device_data.get("device_code", "SHEM")
             num_channels = 3 if device_code in ("SHEM-3", "SPEM-003CEBEU") else 2
 
+            session = async_get_clientsession(self._hass)
             for channel in range(num_channels):
                 csv_data = await fetch_csv_from_gateway(
-                    gateway_url, hostname, channel
+                    gateway_url, hostname, channel, session=session
                 )
                 if not csv_data:
                     continue

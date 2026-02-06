@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import quote_plus
 
 import aiohttp
 import voluptuous as vol
@@ -23,6 +22,7 @@ from .const import (
     SHELLY_CONSENT_URL,
     WEBHOOK_ID,
 )
+from .core.consent import build_consent_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,15 +178,7 @@ class ShellyIntegratorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _build_consent_url(self) -> str:
         """Build the Shelly consent URL."""
-        try:
-            ha_url = get_url(self.hass, prefer_external=True)
-            # Use static webhook ID since we only allow one instance
-            webhook_url = f"{ha_url}/api/webhook/{WEBHOOK_ID}"
-            encoded_callback = quote_plus(webhook_url)
-            return f"{SHELLY_CONSENT_URL}?itg={INTEGRATOR_TAG}&cb={encoded_callback}"
-        except Exception as err:
-            _LOGGER.warning("Could not build consent URL: %s", err)
-            return f"{SHELLY_CONSENT_URL}?itg={INTEGRATOR_TAG}"
+        return _safe_build_consent_url(self.hass)
 
 
 class ShellyIntegratorOptionsFlow(OptionsFlow):
@@ -252,12 +244,14 @@ class ShellyIntegratorOptionsFlow(OptionsFlow):
 
     def _build_consent_url(self) -> str:
         """Build the Shelly consent URL."""
-        try:
-            ha_url = get_url(self.hass, prefer_external=True)
-            # Use static webhook ID since we only allow one instance
-            webhook_url = f"{ha_url}/api/webhook/{WEBHOOK_ID}"
-            encoded_callback = quote_plus(webhook_url)
-            return f"{SHELLY_CONSENT_URL}?itg={INTEGRATOR_TAG}&cb={encoded_callback}"
-        except Exception as err:
-            _LOGGER.warning("Could not build consent URL: %s", err)
-            return f"{SHELLY_CONSENT_URL}?itg={INTEGRATOR_TAG}"
+        return _safe_build_consent_url(self.hass)
+
+
+def _safe_build_consent_url(hass) -> str:
+    """Build consent URL with fallback on error."""
+    try:
+        ha_url = get_url(hass, prefer_external=True)
+        return build_consent_url(INTEGRATOR_TAG, ha_url, WEBHOOK_ID)
+    except Exception as err:
+        _LOGGER.warning("Could not build consent URL: %s", err)
+        return f"{SHELLY_CONSENT_URL}?itg={INTEGRATOR_TAG}"

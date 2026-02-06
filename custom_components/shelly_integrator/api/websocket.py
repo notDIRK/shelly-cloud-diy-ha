@@ -11,14 +11,12 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import aiohttp
 
+from ..const import WSS_PORT, WSS_PATH, WS_RECONNECT_DELAY
+
 if TYPE_CHECKING:
     from aiohttp import ClientSession
 
 _LOGGER = logging.getLogger(__name__)
-
-WSS_PORT = 6113
-WSS_PATH = "/shelly/wss/hk_sock"
-WS_RECONNECT_DELAY = 5
 
 
 class ShellyWebSocket:

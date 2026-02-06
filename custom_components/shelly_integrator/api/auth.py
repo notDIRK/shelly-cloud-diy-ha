@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
+from ..const import API_GET_TOKEN
+
 if TYPE_CHECKING:
     from aiohttp import ClientSession
 
 _LOGGER = logging.getLogger(__name__)
-
-API_GET_TOKEN = "https://api.shelly.cloud/integrator/get_access_token"
 
 
 class ShellyAuth:
@@ -25,6 +25,7 @@ class ShellyAuth:
         session: ClientSession,
         integrator_tag: str,
         integrator_token: str,
+        jwt_token: str | None = None,
     ) -> None:
         """Initialize authentication manager.
 
@@ -32,11 +33,12 @@ class ShellyAuth:
             session: aiohttp client session
             integrator_tag: Integrator identification tag
             integrator_token: User's integrator token
+            jwt_token: Optional pre-fetched JWT token
         """
         self._session = session
         self._tag = integrator_tag
         self._token = integrator_token
-        self._jwt_token: str | None = None
+        self._jwt_token: str | None = jwt_token
 
     @property
     def jwt_token(self) -> str | None:

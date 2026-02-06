@@ -198,8 +198,3 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
                 action="to_pos",
                 params={"pos": position},
             )
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from coordinator."""
-        self.async_write_ha_state()

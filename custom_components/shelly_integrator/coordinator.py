@@ -66,8 +66,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entry = entry
 
         # API layer
-        self._auth = ShellyAuth(session, tag, token)
-        self._auth._jwt_token = jwt_token  # Set initial token
+        self._auth = ShellyAuth(session, tag, token, jwt_token=jwt_token)
 
         self._websocket = ShellyWebSocket(
             session=session,

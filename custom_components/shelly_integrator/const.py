@@ -1,4 +1,9 @@
 """Constants for Shelly Integrator."""
+from __future__ import annotations
+
+import re
+from typing import Any
+
 from homeassistant.const import Platform
 
 DOMAIN = "shelly_integrator"
@@ -36,3 +41,11 @@ PLATFORMS = [
 
 # Webhook
 WEBHOOK_ID = "shelly_integrator_callback"
+
+# Gen2/Gen3 detection pattern (shared across all platforms)
+_GEN2_PATTERN = re.compile(r"switch:\d+|light:\d+|cover:\d+|input:\d+")
+
+
+def is_gen2_status(status: dict[str, Any]) -> bool:
+    """Check if a device status dict is from a Gen2/Gen3 (RPC) device."""
+    return any(_GEN2_PATTERN.match(key) for key in status)

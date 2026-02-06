@@ -147,8 +147,3 @@ class ShellySwitch(ShellyBaseEntity, SwitchEntity):
                 relays[self._channel]["ison"] = is_on
 
         self.async_write_ha_state()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from coordinator."""
-        self.async_write_ha_state()

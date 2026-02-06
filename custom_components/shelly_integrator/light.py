@@ -7,8 +7,6 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_COLOR_TEMP,
-    ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
 )
@@ -140,13 +138,20 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
+        params: dict[str, Any] | None = None
+        brightness = kwargs.get(ATTR_BRIGHTNESS)
+        if brightness is not None:
+            # Convert HA brightness (0-255) to Shelly percentage (0-100)
+            params = {"brightness": int(brightness * 100 / 255)}
+
         await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="light",
             channel=self._channel,
             action="on",
+            params=params,
         )
-        self._update_local_state(True)
+        self._update_local_state(True, brightness=brightness)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
@@ -158,21 +163,24 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         )
         self._update_local_state(False)
 
-    def _update_local_state(self, is_on: bool) -> None:
+    def _update_local_state(
+        self, is_on: bool, brightness: int | None = None
+    ) -> None:
         """Update local state optimistically."""
         status = self.device_status
+        # Convert HA brightness (0-255) to Shelly percentage (0-100)
+        pct = int(brightness * 100 / 255) if brightness is not None else None
 
         if self._is_gen2:
             if self._key in status:
                 status[self._key]["output"] = is_on
+                if pct is not None:
+                    status[self._key]["brightness"] = pct
         else:
             lights = status.get("lights", [])
             if len(lights) > self._channel:
                 lights[self._channel]["ison"] = is_on
+                if pct is not None:
+                    lights[self._channel]["brightness"] = pct
 
-        self.async_write_ha_state()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from coordinator."""
         self.async_write_ha_state()

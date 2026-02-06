@@ -8,9 +8,9 @@ import logging
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 
-_LOGGER = logging.getLogger(__name__)
+from ..const import SHELLY_CONSENT_URL
 
-SHELLY_CONSENT_URL = "https://my.shelly.cloud/integrator.html"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..const import DOMAIN
+from ..const import DOMAIN, is_gen2_status
 from .descriptions import get_model_name
 
 if TYPE_CHECKING:
@@ -60,11 +60,7 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
     @property
     def is_gen2(self) -> bool:
         """Check if device is Gen2/Gen3."""
-        import re
-        return any(
-            re.match(r"switch:\d+|light:\d+|cover:\d+|input:\d+", key)
-            for key in self.device_status.keys()
-        )
+        return is_gen2_status(self.device_status)
 
     @property
     def device_info(self) -> DeviceInfo:

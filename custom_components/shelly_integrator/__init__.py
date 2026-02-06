@@ -23,6 +23,7 @@ from homeassistant.components.webhook import (
 
 from .const import (
     DOMAIN,
+    INTEGRATOR_TAG,
     PLATFORMS,
     CONF_INTEGRATOR_TOKEN,
     WEBHOOK_ID,
@@ -48,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     token = entry.data[CONF_INTEGRATOR_TOKEN]
 
     # Initialize authentication
-    auth = ShellyAuth(session, "ITG_OSS", token)
+    auth = ShellyAuth(session, INTEGRATOR_TAG, token)
 
     try:
         jwt_token = await auth.get_jwt_token()
@@ -59,7 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = ShellyIntegratorCoordinator(
         hass=hass,
         session=session,
-        tag="ITG_OSS",
+        tag=INTEGRATOR_TAG,
         token=token,
         jwt_token=jwt_token,
         entry=entry,
@@ -93,19 +94,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     notifications = NotificationService(hass)
     try:
         ha_url = get_url(hass, prefer_external=True)
-        consent_url = build_consent_url("ITG_OSS", ha_url, WEBHOOK_ID)
+        consent_url = build_consent_url(INTEGRATOR_TAG, ha_url, WEBHOOK_ID)
         notifications.show_setup_notification(consent_url)
         _LOGGER.info("Consent URL: %s", consent_url)
     except Exception as err:
         _LOGGER.warning("Could not create consent notification: %s", err)
 
-    # Set up services
-    await _register_services(hass, entry, coordinator)
-
-    # Set up historical data sync
+    # Set up historical data service (single instance for both
+    # manual service calls and automatic sync)
     historical_service = HistoricalDataService(hass, coordinator, entry)
-    await historical_service.setup_auto_sync()
     hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
+
+    await _register_services(hass, entry, historical_service)
+    await historical_service.setup_auto_sync()
 
     # Options update listener
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -116,11 +117,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _register_services(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    coordinator: ShellyIntegratorCoordinator,
+    historical_service: HistoricalDataService,
 ) -> None:
     """Register integration services."""
-    historical_service = HistoricalDataService(hass, coordinator, entry)
-
     if not hass.services.has_service(DOMAIN, "download_and_convert_history"):
         hass.services.async_register(
             DOMAIN,
@@ -135,8 +134,9 @@ async def _register_services(
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
-    _LOGGER.info("Options updated for Shelly Integrator")
+    """Handle options update by reloading the integration."""
+    _LOGGER.info("Options updated, reloading Shelly Integrator")
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, is_gen2_status
 from .coordinator import ShellyIntegratorCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 from .entities.descriptions import (
@@ -42,12 +42,7 @@ async def async_setup_entry(
         if not status:
             return entities
 
-        is_gen2 = any(
-            re.match(r"switch:\d+|light:\d+|cover:\d+|input:\d+", key)
-            for key in status.keys()
-        )
-
-        if is_gen2:
+        if is_gen2_status(status):
             entities.extend(_create_rpc_sensors(
                 device_id, status, created_sensors, coordinator
             ))

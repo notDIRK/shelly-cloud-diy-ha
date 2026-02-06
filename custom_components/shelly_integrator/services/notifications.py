@@ -78,26 +78,21 @@ class NotificationService:
             notification_id=NOTIFICATION_ID_DEVICE_ADDED,
         )
 
-    def show_historical_success(self, output_files: list[str]) -> None:
-        """Show historical data conversion success.
+    def show_historical_success(self, statistic_ids: list[str]) -> None:
+        """Show historical data import success.
 
         Args:
-            output_files: List of created file paths
+            statistic_ids: List of imported statistic IDs
         """
-        files_list = "\n".join(f"- `{f}`" for f in output_files)
+        stats_list = "\n".join(f"- `{s}`" for s in statistic_ids)
         notify_create(
             self._hass,
             message=(
-                f"Historical data converted successfully!\n\n"
-                f"**Files created:**\n{files_list}\n\n"
-                f"**Next steps:**\n"
-                f"1. Install 'Import Statistics' from HACS\n"
-                f"2. Go to Developer Tools → Actions\n"
-                f"3. Call `import_statistics.import_from_file`\n"
-                f"4. Set filename to one of the files above\n"
-                f"5. Set delimiter to `,` (comma)"
+                f"Historical energy data imported successfully!\n\n"
+                f"**Statistics updated:**\n{stats_list}\n\n"
+                f"The data is now available in the Energy Dashboard."
             ),
-            title="Shelly Historical Data Ready",
+            title="Shelly Historical Data Imported",
             notification_id=NOTIFICATION_ID_HISTORICAL_SUCCESS,
         )
 
