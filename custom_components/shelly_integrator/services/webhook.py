@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
-from ..const import DOMAIN
 from ..core.consent import parse_webhook_payload
 from .notifications import NotificationService
 
@@ -83,7 +82,8 @@ class WebhookHandler:
 
         # Store device info in coordinator
         if payload.host:
-            self._coordinator._device_host_map[payload.device_id] = payload.host
+            host_map = self._coordinator._device_host_map
+            host_map[payload.device_id] = payload.host
 
         # Pre-populate device data
         if payload.device_id not in self._coordinator.devices:
@@ -107,11 +107,10 @@ class WebhookHandler:
         self._notifications.show_device_added(name)
 
     async def _handle_device_remove(self, payload) -> None:
-        """Handle device remove action.
+        """Handle device remove action (consent revoked in Shelly Cloud).
 
         Args:
             payload: Parsed webhook payload
         """
-        _LOGGER.info("Device removed: id=%s", payload.device_id)
-        self._coordinator._device_host_map.pop(payload.device_id, None)
-        self._coordinator.devices.pop(payload.device_id, None)
+        _LOGGER.info("Device consent revoked: id=%s", payload.device_id)
+        await self._coordinator.async_remove_device(payload.device_id)

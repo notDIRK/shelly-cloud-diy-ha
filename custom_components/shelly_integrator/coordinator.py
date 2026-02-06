@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers import device_registry as dr
 
 from .api.auth import ShellyAuth
 from .api.websocket import ShellyWebSocket
@@ -281,29 +282,22 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dev = device_settings.get("device", {})
                     device_name = dev.get("hostname")
 
-            # Update device
-            if device_id in self.devices:
-                device = self.devices[device_id]
-                if device_type:
-                    device["device_type"] = device_type
-                if device_code:
-                    device["device_code"] = device_code
-                if device_name:
-                    device["name"] = device_name
-                if device_status:
-                    device["status"] = device_status
-                    device["online"] = True
-                if access_groups:
-                    device["access_groups"] = access_groups
-            else:
-                self.devices[device_id] = {
-                    "status": device_status,
-                    "device_type": device_type,
-                    "device_code": device_code,
-                    "name": device_name,
-                    "access_groups": access_groups,
-                    "online": bool(device_status),
-                }
+            # Replace device data entirely -- Shelly response is
+            # the source of truth.  Preserve only ``settings``
+            # which arrives via a separate Shelly:Settings event.
+            prev_settings = self.devices.get(
+                device_id, {}
+            ).get("settings")
+
+            self.devices[device_id] = {
+                "status": device_status or {},
+                "device_type": device_type,
+                "device_code": device_code,
+                "name": device_name,
+                "access_groups": access_groups,
+                "online": bool(device_status),
+                "settings": prev_settings,
+            }
 
             _LOGGER.info(
                 "Device verified: %s (name=%s, type=%s)",
@@ -379,6 +373,28 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.devices[device_id]["settings"] = settings
             _LOGGER.debug("Settings updated: %s", device_id)
             self.async_set_updated_data(self.devices)
+
+    async def async_remove_device(self, device_id: str) -> None:
+        """Remove a device from coordinator and persistent storage.
+
+        Called when:
+        - User deletes device from HA UI
+        - Shelly Cloud webhook reports device removal (consent revoked)
+        """
+        self._device_host_map.pop(device_id, None)
+        self.devices.pop(device_id, None)
+        await self._persist_known_devices()
+
+        # Remove from HA device registry (also removes its entities)
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get_device(
+            identifiers={(DOMAIN, device_id)}
+        )
+        if device:
+            dev_reg.async_remove_device(device.id)
+
+        self.async_set_updated_data(self.devices)
+        _LOGGER.info("Device removed: %s", device_id)
 
     async def async_close(self) -> None:
         """Close all connections."""

@@ -16,6 +16,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.components.webhook import (
     async_register as webhook_register,
     async_unregister as webhook_unregister,
@@ -168,3 +169,32 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Allow user to delete a Shelly device from HA UI.
+
+    Enables the "Delete" button on device pages. When clicked,
+    removes the device from coordinator memory and persistent storage.
+    HA handles entity/registry cleanup automatically after this returns True.
+    """
+    coordinator: ShellyIntegratorCoordinator = (
+        hass.data[DOMAIN][config_entry.entry_id]
+    )
+
+    # Extract Shelly device ID from HA device identifiers
+    device_id = None
+    for identifier in device_entry.identifiers:
+        if identifier[0] == DOMAIN:
+            device_id = identifier[1]
+            break
+
+    if not device_id:
+        return False
+
+    await coordinator.async_remove_device(device_id)
+    return True

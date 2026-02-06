@@ -89,38 +89,50 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
     ) -> str:
         """Get device name from available sources.
 
-        Priority:
-        1. Name from coordinator device data
+        Always appends the last 6 digits of the device ID in parentheses
+        so that multiple devices of the same model are distinguishable in
+        both the UI and the auto-generated entity IDs.
+
+        Examples:
+            "Shelly Plus 1 (991792)"
+                -> switch.shelly_plus_1_991792_switch
+            "Kitchen Light (366571)"
+                -> switch.kitchen_light_366571_switch
+
+        Priority for base name:
+        1. Name from coordinator device data (user-set)
         2. Name from Gen2 sys.device.name
         3. Name from Gen1 getinfo.fw_info.device
         4. Model name from device code
-        5. Fallback to last 6 chars of device ID
+        5. Fallback: "Shelly"
         """
-        # Priority 1: Stored name
+        suffix = self._device_id[-6:]
+
+        # Priority 1: Stored name (user-set in Shelly Cloud)
         name = device_data.get("name")
         if name:
-            return name
+            return f"{name} ({suffix})"
 
         # Priority 2: Gen2 name
         if self.is_gen2:
             sys_info = status.get("sys", {}).get("device", {})
             name = sys_info.get("name")
             if name:
-                return name
+                return f"{name} ({suffix})"
 
         # Priority 3: Gen1 name
         getinfo = status.get("getinfo", {}).get("fw_info", {})
         name = getinfo.get("device")
         if name:
-            return name
+            return f"{name} ({suffix})"
 
         # Priority 4: Model name
         device_code = device_data.get("device_code", "")
         if device_code:
-            return get_model_name(device_code)
+            return f"{get_model_name(device_code)} ({suffix})"
 
         # Priority 5: Fallback
-        return f"Shelly {self._device_id[-6:]}"
+        return f"Shelly ({suffix})"
 
     @property
     def available(self) -> bool:
