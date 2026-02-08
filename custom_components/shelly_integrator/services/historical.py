@@ -14,6 +14,7 @@ from homeassistant.components.recorder.statistics import (
     statistics_during_period,
 )
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.start import async_at_started
 
 from ..const import CONF_LOCAL_GATEWAY_URL, HISTORICAL_SYNC_INTERVAL
 from ..utils.csv_converter import (
@@ -93,13 +94,12 @@ class HistoricalDataService:
             _LOGGER.debug("No gateway URL, skipping auto sync")
             return
 
-        # Run initial sync after startup
-        self._hass.loop.call_later(
-            60,
-            lambda: self._hass.async_create_task(self._run_auto_sync())
-        )
+        # Run initial sync once HA is fully started (event-driven,
+        # no arbitrary delay).  If HA is already started when this
+        # is called, the callback fires immediately.
+        async_at_started(self._hass, self._on_ha_started)
 
-        # Schedule daily sync
+        # Schedule recurring daily sync
         self._cancel_interval = async_track_time_interval(
             self._hass,
             self._run_auto_sync,
@@ -110,6 +110,11 @@ class HistoricalDataService:
             "Scheduled auto sync every %d hours",
             HISTORICAL_SYNC_INTERVAL // 3600
         )
+
+    async def _on_ha_started(self, _hass: HomeAssistant) -> None:
+        """Run initial historical sync after HA startup completes."""
+        _LOGGER.info("HA started, running initial historical sync")
+        await self._run_auto_sync()
 
     async def _run_auto_sync(self, now=None) -> None:
         """Run automatic sync."""

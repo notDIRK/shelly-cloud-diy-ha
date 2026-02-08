@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import aiohttp
 
-from ..const import WSS_PORT, WSS_PATH, WS_RECONNECT_DELAY
+from ..const import WSS_PORT, WSS_PATH, WS_RECONNECT_MIN, WS_RECONNECT_MAX
 
 if TYPE_CHECKING:
     from aiohttp import ClientSession
@@ -211,16 +211,22 @@ class ShellyWebSocket:
         await ws.send_json(command)
 
     async def _connection_loop(self, host: str) -> None:
-        """Connection loop with automatic reconnection."""
+        """Connection loop with exponential-backoff reconnection."""
+        backoff = WS_RECONNECT_MIN
         while self._running:
             try:
                 await self._connect_and_listen(host)
+                # Successful session – reset backoff for next drop
+                backoff = WS_RECONNECT_MIN
             except Exception as err:
                 _LOGGER.error("WebSocket error for %s: %s", host, err)
 
             if self._running:
-                _LOGGER.info("Reconnecting to %s in %ds", host, WS_RECONNECT_DELAY)
-                await asyncio.sleep(WS_RECONNECT_DELAY)
+                _LOGGER.info(
+                    "Reconnecting to %s in %ds", host, backoff
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, WS_RECONNECT_MAX)
 
     async def _connect_and_listen(self, host: str) -> None:
         """Establish connection and listen for messages."""

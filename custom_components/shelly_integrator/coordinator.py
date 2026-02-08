@@ -109,16 +109,27 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current_known == self._device_host_map:
             return  # No changes
 
-        _LOGGER.debug("Persisting %d known devices", len(self._device_host_map))
-        new_data = {**self._entry.data, CONF_KNOWN_DEVICES: dict(self._device_host_map)}
-        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+        _LOGGER.debug(
+            "Persisting %d known devices",
+            len(self._device_host_map),
+        )
+        new_data = {
+            **self._entry.data,
+            CONF_KNOWN_DEVICES: dict(self._device_host_map),
+        }
+        self.hass.config_entries.async_update_entry(
+            self._entry, data=new_data
+        )
 
     async def _on_ws_connected(self, host: str) -> None:
         """Handle WebSocket connection established.
 
         Request status for all known devices on this host.
         """
-        _LOGGER.info("WebSocket connected to %s, requesting device status", host)
+        _LOGGER.info(
+            "WebSocket connected to %s, requesting status",
+            host,
+        )
 
         devices_on_host = [
             did for did, h in self._device_host_map.items() if h == host
@@ -128,11 +139,15 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("No known devices on host %s", host)
             return
 
-        _LOGGER.info("Requesting status for %d devices on %s", len(devices_on_host), host)
+        _LOGGER.info(
+            "Requesting status for %d devices on %s",
+            len(devices_on_host),
+            host,
+        )
         for device_id in devices_on_host:
-            await self._websocket.send_action_request(host, "DeviceVerify", device_id)
-            # Small delay to avoid flooding
-            await asyncio.sleep(0.1)
+            await self._websocket.send_action_request(
+                host, "DeviceVerify", device_id
+            )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Return current device data (fallback polling)."""
@@ -374,24 +389,33 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Settings updated: %s", device_id)
             self.async_set_updated_data(self.devices)
 
-    async def async_remove_device(self, device_id: str) -> None:
+    async def async_remove_device(
+        self,
+        device_id: str,
+        remove_from_registry: bool = False,
+    ) -> None:
         """Remove a device from coordinator and persistent storage.
 
-        Called when:
-        - User deletes device from HA UI
-        - Shelly Cloud webhook reports device removal (consent revoked)
+        Args:
+            device_id: Shelly Cloud device ID
+            remove_from_registry: If True, also remove from HA
+                device registry.  Set to False when called from
+                ``async_remove_config_entry_device`` (HA handles
+                the registry removal itself after we return True).
+                Set to True for webhook-triggered removals where
+                HA is not involved.
         """
         self._device_host_map.pop(device_id, None)
         self.devices.pop(device_id, None)
         await self._persist_known_devices()
 
-        # Remove from HA device registry (also removes its entities)
-        dev_reg = dr.async_get(self.hass)
-        device = dev_reg.async_get_device(
-            identifiers={(DOMAIN, device_id)}
-        )
-        if device:
-            dev_reg.async_remove_device(device.id)
+        if remove_from_registry:
+            dev_reg = dr.async_get(self.hass)
+            device = dev_reg.async_get_device(
+                identifiers={(DOMAIN, device_id)}
+            )
+            if device:
+                dev_reg.async_remove_device(device.id)
 
         self.async_set_updated_data(self.devices)
         _LOGGER.info("Device removed: %s", device_id)

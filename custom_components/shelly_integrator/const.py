@@ -24,8 +24,9 @@ CONF_LOCAL_GATEWAY_URL = "local_gateway_url"
 # Token refresh interval (23 hours to be safe, token valid 24h)
 TOKEN_REFRESH_INTERVAL = 23 * 60 * 60
 
-# WebSocket reconnect delay
-WS_RECONNECT_DELAY = 5
+# WebSocket reconnect – exponential backoff bounds (seconds)
+WS_RECONNECT_MIN = 1
+WS_RECONNECT_MAX = 60
 
 # Historical data sync interval (daily = 24 hours)
 HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60

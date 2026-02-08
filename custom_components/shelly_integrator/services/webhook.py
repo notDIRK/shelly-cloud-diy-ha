@@ -113,4 +113,6 @@ class WebhookHandler:
             payload: Parsed webhook payload
         """
         _LOGGER.info("Device consent revoked: id=%s", payload.device_id)
-        await self._coordinator.async_remove_device(payload.device_id)
+        await self._coordinator.async_remove_device(
+            payload.device_id, remove_from_registry=True
+        )

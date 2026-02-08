@@ -89,15 +89,14 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
     ) -> str:
         """Get device name from available sources.
 
-        Always appends the last 6 digits of the device ID in parentheses
-        so that multiple devices of the same model are distinguishable in
-        both the UI and the auto-generated entity IDs.
+        Appends the full device ID so that every device is
+        uniquely identifiable in the UI and in entity IDs.
 
         Examples:
-            "Shelly Plus 1 (991792)"
-                -> switch.shelly_plus_1_991792_switch
-            "Kitchen Light (366571)"
-                -> switch.kitchen_light_366571_switch
+            "Shelly Plus 1 (53640421991792)"
+                -> switch.shelly_plus_1_53640421991792_switch
+            "Kitchen Light (80157669366571)"
+                -> switch.kitchen_light_80157669366571_switch
 
         Priority for base name:
         1. Name from coordinator device data (user-set)
@@ -106,33 +105,33 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
         4. Model name from device code
         5. Fallback: "Shelly"
         """
-        suffix = self._device_id[-6:]
+        did = self._device_id
 
         # Priority 1: Stored name (user-set in Shelly Cloud)
         name = device_data.get("name")
         if name:
-            return f"{name} ({suffix})"
+            return f"{name} ({did})"
 
         # Priority 2: Gen2 name
         if self.is_gen2:
             sys_info = status.get("sys", {}).get("device", {})
             name = sys_info.get("name")
             if name:
-                return f"{name} ({suffix})"
+                return f"{name} ({did})"
 
         # Priority 3: Gen1 name
         getinfo = status.get("getinfo", {}).get("fw_info", {})
         name = getinfo.get("device")
         if name:
-            return f"{name} ({suffix})"
+            return f"{name} ({did})"
 
         # Priority 4: Model name
         device_code = device_data.get("device_code", "")
         if device_code:
-            return f"{get_model_name(device_code)} ({suffix})"
+            return f"{get_model_name(device_code)} ({did})"
 
         # Priority 5: Fallback
-        return f"Shelly ({suffix})"
+        return f"Shelly ({did})"
 
     @property
     def available(self) -> bool:

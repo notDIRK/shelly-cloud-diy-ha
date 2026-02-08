@@ -17,6 +17,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.components.webhook import (
     async_register as webhook_register,
     async_unregister as webhook_unregister,
@@ -88,6 +89,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Wait for known devices to be verified before setting up platforms
     await coordinator.async_wait_for_devices(timeout=5.0)
 
+    # Purge ghost entities left over from previously deleted devices
+    # so they get recreated fresh with current naming format
+    _purge_deleted_entities(hass, entry)
+
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -114,6 +119,125 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return True
 
+
+# ── Deleted-entity purge ─────────────────────────────────────
+#
+# When a device is deleted from the HA UI, HA moves its entities
+# to ``deleted_entities`` in the entity registry.  If the same
+# device is later re-added, HA matches on ``unique_id`` and
+# restores the OLD entity_id – even if the naming format has
+# changed.
+#
+# To guarantee a completely fresh start after deletion we purge
+# those ghost records:
+#   1. On every startup (catches anything left from previous runs)
+#   2. Shortly after a device is deleted from the UI (so an
+#      immediate re-add within the same session also starts fresh)
+
+
+def _purge_deleted_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Remove ghost entity records for this config entry.
+
+    HA stores deleted entities keyed by (domain, platform,
+    unique_id).  We iterate and drop every entry that belongs
+    to our config entry so that re-added devices get fresh
+    entity IDs.
+    """
+    ent_reg = er.async_get(hass)
+    deleted = ent_reg.deleted_entities
+    to_remove = [
+        key for key, e in deleted.items()
+        if e.config_entry_id == entry.entry_id
+    ]
+    if not to_remove:
+        return
+
+    # ``deleted_entities`` is backed by the internal
+    # ``_entities_data`` dict – there is no public API to
+    # purge individual deleted records, so we access it
+    # directly.
+    internal = getattr(
+        ent_reg, "_entities_data", None
+    )
+    if internal is None:
+        _LOGGER.debug(
+            "Cannot purge deleted entities "
+            "(internal API unavailable)"
+        )
+        return
+
+    for key in to_remove:
+        internal.deleted_entities.pop(key, None)
+
+    ent_reg.async_schedule_save()
+    _LOGGER.info(
+        "Purged %d ghost entity records", len(to_remove)
+    )
+
+
+def _purge_device_entities(
+    hass: HomeAssistant,
+    config_entry_id: str,
+    ha_device_id: str,
+    shelly_device_id: str,
+) -> None:
+    """Remove all entities for a device and purge their ghost records.
+
+    Called synchronously (within the event loop) from
+    ``async_remove_config_entry_device`` *before* returning True.
+    This avoids any arbitrary sleep: we proactively remove the
+    entities, then immediately clean up ``deleted_entities`` so
+    a future re-add starts completely fresh.
+
+    Args:
+        hass: Home Assistant instance
+        config_entry_id: Config entry ID
+        ha_device_id: HA internal device ID (device_entry.id)
+        shelly_device_id: Shelly Cloud device ID
+    """
+    ent_reg = er.async_get(hass)
+
+    # Step 1: Remove all live entities for this device.
+    # async_remove moves each entity into ``deleted_entities``.
+    entities = er.async_entries_for_device(
+        ent_reg, ha_device_id, include_disabled_entities=True
+    )
+    for entity in entities:
+        ent_reg.async_remove(entity.entity_id)
+
+    if not entities:
+        return
+
+    # Step 2: Purge the ghost records we just created so
+    # re-adding the same device produces fresh entity IDs.
+    deleted = ent_reg.deleted_entities
+    to_remove = [
+        key for key, e in deleted.items()
+        if e.config_entry_id == config_entry_id
+        and shelly_device_id in (e.unique_id or "")
+    ]
+    if not to_remove:
+        return
+
+    internal = getattr(ent_reg, "_entities_data", None)
+    if internal is None:
+        return
+
+    for key in to_remove:
+        internal.deleted_entities.pop(key, None)
+
+    ent_reg.async_schedule_save()
+    _LOGGER.info(
+        "Removed %d entities and purged ghost records "
+        "for device %s",
+        len(entities),
+        shelly_device_id,
+    )
+
+
+# ── Service registration ─────────────────────────────────────
 
 async def _register_services(
     hass: HomeAssistant,
@@ -178,9 +302,11 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow user to delete a Shelly device from HA UI.
 
-    Enables the "Delete" button on device pages. When clicked,
-    removes the device from coordinator memory and persistent storage.
-    HA handles entity/registry cleanup automatically after this returns True.
+    Enables the "Delete" button on device pages.  When clicked:
+    1. All entities for the device are removed and ghost
+       records purged synchronously (no arbitrary sleep)
+    2. Coordinator memory + persistent storage are cleaned
+    3. We return True so HA removes the device entry
     """
     coordinator: ShellyIntegratorCoordinator = (
         hass.data[DOMAIN][config_entry.entry_id]
@@ -195,6 +321,16 @@ async def async_remove_config_entry_device(
 
     if not device_id:
         return False
+
+    # Proactively remove entities and purge ghost records
+    # before HA's cascade removal — fully deterministic,
+    # no sleep required.
+    _purge_device_entities(
+        hass,
+        config_entry.entry_id,
+        device_entry.id,
+        device_id,
+    )
 
     await coordinator.async_remove_device(device_id)
     return True
