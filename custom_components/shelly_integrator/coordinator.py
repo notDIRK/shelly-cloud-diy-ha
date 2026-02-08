@@ -81,6 +81,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._device_host_map: dict[str, str] = {}
         self._token_refresh_unsub: Callable[[], None] | None = None
         self._devices_ready = asyncio.Event()
+        self._pending_verifications: set[str] = set()
 
         # Restore known devices from persistent storage
         self._restore_known_devices()
@@ -132,12 +133,17 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         devices_on_host = [
-            did for did, h in self._device_host_map.items() if h == host
+            did for did, h in self._device_host_map.items()
+            if h == host
         ]
 
         if not devices_on_host:
             _LOGGER.debug("No known devices on host %s", host)
             return
+
+        # Track which devices we are waiting for so
+        # _devices_ready fires only after ALL respond.
+        self._pending_verifications.update(devices_on_host)
 
         _LOGGER.info(
             "Requesting status for %d devices on %s",
@@ -172,6 +178,20 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except asyncio.TimeoutError:
             _LOGGER.warning("Timeout waiting for device verification")
             return False
+
+    def _resolve_pending(self, device_id: str) -> None:
+        """Mark a device verification as complete.
+
+        Sets ``_devices_ready`` once every pending device has
+        responded (OK, UNAUTHORIZED, etc.).
+        """
+        self._pending_verifications.discard(device_id)
+        if (
+            not self._pending_verifications
+            and not self._devices_ready.is_set()
+        ):
+            _LOGGER.info("All pending device verifications complete")
+            self._devices_ready.set()
 
     async def async_config_entry_first_refresh(self) -> None:
         """Start connections on first refresh."""
@@ -276,10 +296,17 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if result == "UNAUTHORIZED":
             _LOGGER.error("Unauthorized: %s", device_id)
+            self._resolve_pending(device_id)
             return
 
         if result == "OK" and device_id:
-            is_new = device_id not in self.devices
+            # A device is "new" if it was never seen OR if it was
+            # only a restore-stub (no device_code yet).  Stubs are
+            # created by _restore_known_devices with just
+            # {"online": False}.
+            existing = self.devices.get(device_id, {})
+            is_new = not existing.get("device_code")
+
             self._device_host_map[device_id] = host
 
             # Extract device info
@@ -300,9 +327,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Replace device data entirely -- Shelly response is
             # the source of truth.  Preserve only ``settings``
             # which arrives via a separate Shelly:Settings event.
-            prev_settings = self.devices.get(
-                device_id, {}
-            ).get("settings")
+            prev_settings = existing.get("settings")
 
             self.devices[device_id] = {
                 "status": device_status or {},
@@ -321,14 +346,16 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self.async_set_updated_data(self.devices)
 
-            # Signal that at least one device is ready
-            if not self._devices_ready.is_set():
-                self._devices_ready.set()
+            # Signal ready only when ALL pending devices have
+            # been verified (or timed out).
+            self._resolve_pending(device_id)
 
             if is_new:
                 # Persist newly discovered device
                 await self._persist_known_devices()
-                async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
+                async_dispatcher_send(
+                    self.hass, SIGNAL_NEW_DEVICE, device_id
+                )
 
     async def _handle_status_change(self, message: dict, host: str) -> None:
         """Handle Shelly:StatusOnChange event."""

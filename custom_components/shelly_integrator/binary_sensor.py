@@ -59,6 +59,9 @@ async def async_setup_entry(
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for newly discovered device."""
+        stale = [k for k in created_entities if k.startswith(device_id)]
+        for k in stale:
+            created_entities.discard(k)
         entities = create_binary_sensors(device_id)
         if entities:
             async_add_entities(entities)

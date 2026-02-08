@@ -154,22 +154,8 @@ def _purge_deleted_entities(
     if not to_remove:
         return
 
-    # ``deleted_entities`` is backed by the internal
-    # ``_entities_data`` dict – there is no public API to
-    # purge individual deleted records, so we access it
-    # directly.
-    internal = getattr(
-        ent_reg, "_entities_data", None
-    )
-    if internal is None:
-        _LOGGER.debug(
-            "Cannot purge deleted entities "
-            "(internal API unavailable)"
-        )
-        return
-
     for key in to_remove:
-        internal.deleted_entities.pop(key, None)
+        deleted.pop(key, None)
 
     ent_reg.async_schedule_save()
     _LOGGER.info(
@@ -221,12 +207,8 @@ def _purge_device_entities(
     if not to_remove:
         return
 
-    internal = getattr(ent_reg, "_entities_data", None)
-    if internal is None:
-        return
-
     for key in to_remove:
-        internal.deleted_entities.pop(key, None)
+        deleted.pop(key, None)
 
     ent_reg.async_schedule_save()
     _LOGGER.info(

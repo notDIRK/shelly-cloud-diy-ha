@@ -59,6 +59,11 @@ async def async_setup_entry(
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for newly discovered device."""
+        # Clear stale tracking for this device so entities are
+        # recreated after a delete-then-rediscover cycle.
+        stale = [k for k in created_sensors if k.startswith(device_id)]
+        for k in stale:
+            created_sensors.discard(k)
         entities = create_sensors(device_id)
         if entities:
             async_add_entities(entities)
