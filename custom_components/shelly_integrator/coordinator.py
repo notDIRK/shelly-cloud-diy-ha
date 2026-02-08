@@ -350,6 +350,13 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # been verified (or timed out).
             self._resolve_pending(device_id)
 
+            # Request settings so hostname becomes available
+            # (needed for CSV fetch in historical sync).
+            if not device_name:
+                await self._websocket.send_action_request(
+                    host, "DeviceGetSettings", device_id
+                )
+
             if is_new:
                 # Persist newly discovered device
                 await self._persist_known_devices()

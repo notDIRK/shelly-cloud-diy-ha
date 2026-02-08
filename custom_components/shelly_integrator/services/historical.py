@@ -16,13 +16,11 @@ from homeassistant.components.recorder.statistics import (
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 
-from ..const import CONF_LOCAL_GATEWAY_URL, HISTORICAL_SYNC_INTERVAL
-from ..utils.csv_converter import (
-    build_statistic_id,
-    parse_shelly_csv_for_import,
-)
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from ..const import CONF_LOCAL_GATEWAY_URL, HISTORICAL_SYNC_INTERVAL
+from ..utils.csv_converter import parse_shelly_csv_for_import
 from ..utils.http import fetch_csv_from_gateway
 from .notifications import NotificationService
 
@@ -388,34 +386,74 @@ class HistoricalDataService:
                 continue
 
             device_code = device_data.get("device_code", "SHEM")
-            num_channels = 3 if device_code in ("SHEM-3", "SPEM-003CEBEU") else 2
+            num_channels = (
+                3 if device_code in ("SHEM-3", "SPEM-003CEBEU")
+                else 2
+            )
 
             session = async_get_clientsession(self._hass)
             for channel in range(num_channels):
+                # Resolve the actual entity_id from the entity
+                # registry so the statistic_id always matches the
+                # current naming, regardless of past renames.
+                statistic_id = self._resolve_energy_entity_id(
+                    dev_id, channel
+                )
+                if not statistic_id:
+                    _LOGGER.warning(
+                        "No energy entity for %s ch %d",
+                        dev_id, channel,
+                    )
+                    continue
+
                 csv_data = await fetch_csv_from_gateway(
-                    gateway_url, hostname, channel, session=session
+                    gateway_url, hostname, channel,
+                    session=session,
                 )
                 if not csv_data:
                     continue
 
-                # Parse CSV data
                 data = parse_shelly_csv_for_import(csv_data)
                 if not data:
                     _LOGGER.warning(
-                        "No valid data for %s channel %d", hostname, channel
+                        "No valid data for %s channel %d",
+                        hostname, channel,
                     )
                     continue
 
-                # Build statistic ID
-                statistic_id = build_statistic_id(hostname, channel)
-                
-                # Import directly to HA statistics (native API)
-                success = await self._import_statistics_native(statistic_id, data)
+                success = await self._import_statistics_native(
+                    statistic_id, data
+                )
                 if success:
                     imported_stats.append(statistic_id)
 
         _LOGGER.info("Sync complete. Imported %d statistics", len(imported_stats))
         return imported_stats
+
+    def _resolve_energy_entity_id(
+        self,
+        device_id: str,
+        channel: int,
+    ) -> str | None:
+        """Look up the current entity_id for an energy sensor.
+
+        Uses the entity registry so the statistic_id always
+        matches the live entity, regardless of naming changes.
+
+        The unique_id pattern for emeter energy sensors is:
+            ``{device_id}_emeter|energy_{channel}``
+        """
+        unique_id = f"{device_id}_emeter|energy_{channel}"
+        ent_reg = er.async_get(self._hass)
+        entry = ent_reg.async_get_entity_id(
+            "sensor", "shelly_integrator", unique_id
+        )
+        if entry:
+            _LOGGER.debug(
+                "Resolved energy entity for %s ch %d: %s",
+                device_id, channel, entry,
+            )
+        return entry
 
     def _find_em_devices(
         self,
@@ -432,7 +470,27 @@ class HistoricalDataService:
         return em_devices
 
     def _get_device_hostname(self, device_data: dict) -> str | None:
-        """Get device hostname from device data."""
+        """Get device hostname from available sources.
+
+        Priority:
+        1. status.getinfo.fw_info.device  (Gen1 local info)
+        2. settings.device.hostname       (Shelly:Settings event)
+        3. device_data.name               (DeviceVerify name)
+        """
+        # Priority 1: Gen1 status info
         status = device_data.get("status", {})
         getinfo = status.get("getinfo", {}).get("fw_info", {})
-        return getinfo.get("device") or device_data.get("name")
+        hostname = getinfo.get("device")
+        if hostname:
+            return hostname
+
+        # Priority 2: Settings from Shelly:Settings event
+        settings = device_data.get("settings", {})
+        if settings:
+            dev = settings.get("device", {})
+            hostname = dev.get("hostname")
+            if hostname:
+                return hostname
+
+        # Priority 3: Name from DeviceVerify
+        return device_data.get("name")
