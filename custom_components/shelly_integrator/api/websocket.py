@@ -145,10 +145,13 @@ class ShellyWebSocket:
         cmd_params = {"id": channel}
         if cmd == "roller":
             cmd_params["go"] = action
-            if params:
-                cmd_params.update(params)
+        elif cmd == "roller_to_pos":
+            pass  # Only id + extra params (pos, rel, slat_pos, slat_rel)
         else:
             cmd_params["turn"] = action
+        # Merge extra params (brightness, pos, etc.) for ALL commands
+        if params:
+            cmd_params.update(params)
 
         command = {
             "event": "Shelly:CommandRequest",
@@ -176,6 +179,66 @@ class ShellyWebSocket:
             return None
         except Exception as err:
             _LOGGER.error("Command error: %s", err)
+            self._pending_responses.pop(trid, None)
+            return None
+
+    async def send_jrpc_request(
+        self,
+        host: str,
+        device_id: str,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 10.0,
+    ) -> dict | None:
+        """Send a JRPC request to a Gen2/Gen3 device.
+
+        Gen2/Gen3 devices use ``Shelly:JrpcRequest`` for RPC methods
+        such as Switch.Set, Light.Set, Cover.Open, etc.
+
+        Args:
+            host: WebSocket server host
+            device_id: Target device ID
+            method: RPC method name
+            params: Method parameters
+            timeout: Response timeout in seconds
+
+        Returns:
+            JRPC response dict, or None on failure
+        """
+        ws = self._connections.get(host)
+        if not ws:
+            _LOGGER.error("No WebSocket connection to %s", host)
+            return None
+
+        self._message_id += 1
+        trid = self._message_id
+
+        command = {
+            "event": "Shelly:JrpcRequest",
+            "trid": trid,
+            "deviceId": device_id,
+            "method": method,
+            "params": params or {},
+        }
+
+        _LOGGER.debug("Sending JRPC request: %s", command)
+
+        future: asyncio.Future = asyncio.Future()
+        self._pending_responses[trid] = future
+
+        try:
+            await ws.send_json(command)
+            result = await asyncio.wait_for(future, timeout=timeout)
+            _LOGGER.debug("JRPC response: %s", result)
+            return result
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "JRPC timeout for %s method %s", device_id, method
+            )
+            self._pending_responses.pop(trid, None)
+            return None
+        except Exception as err:
+            _LOGGER.error("JRPC error: %s", err)
             self._pending_responses.pop(trid, None)
             return None
 
@@ -264,9 +327,9 @@ class ShellyWebSocket:
             message = json.loads(data)
             _LOGGER.debug("Received from %s: %s", host, message)
 
-            # Handle command responses internally
+            # Handle command / JRPC responses internally
             event = message.get("event")
-            if event == "Shelly:CommandResponse":
+            if event in ("Shelly:CommandResponse", "Shelly:JrpcResponse"):
                 trid = message.get("trid")
                 if trid and trid in self._pending_responses:
                     future = self._pending_responses.pop(trid)

@@ -165,38 +165,68 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
-        await self.coordinator.send_command(
-            device_id=self._device_id,
-            cmd="roller",
-            channel=self._channel,
-            action="open",
-        )
+        if self._is_gen2:
+            await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Cover.Open",
+                params={"id": self._channel},
+            )
+        else:
+            await self.coordinator.send_command(
+                device_id=self._device_id,
+                cmd="roller",
+                channel=self._channel,
+                action="open",
+            )
 
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
-        await self.coordinator.send_command(
-            device_id=self._device_id,
-            cmd="roller",
-            channel=self._channel,
-            action="close",
-        )
+        if self._is_gen2:
+            await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Cover.Close",
+                params={"id": self._channel},
+            )
+        else:
+            await self.coordinator.send_command(
+                device_id=self._device_id,
+                cmd="roller",
+                channel=self._channel,
+                action="close",
+            )
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the cover."""
-        await self.coordinator.send_command(
-            device_id=self._device_id,
-            cmd="roller",
-            channel=self._channel,
-            action="stop",
-        )
+        if self._is_gen2:
+            await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Cover.Stop",
+                params={"id": self._channel},
+            )
+        else:
+            await self.coordinator.send_command(
+                device_id=self._device_id,
+                cmd="roller",
+                channel=self._channel,
+                action="stop",
+            )
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move cover to position."""
         position = kwargs.get("position")
-        if position is not None:
+        if position is None:
+            return
+        if self._is_gen2:
+            await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Cover.GoToPosition",
+                params={"id": self._channel, "pos": position},
+            )
+        else:
+            # API uses dedicated "roller_to_pos" command for positioning
             await self.coordinator.send_command(
                 device_id=self._device_id,
-                cmd="roller",
+                cmd="roller_to_pos",
                 channel=self._channel,
                 action="to_pos",
                 params={"pos": position},

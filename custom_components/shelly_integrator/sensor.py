@@ -139,12 +139,15 @@ def _create_block_sensors(
             if uid not in created:
                 created.add(uid)
                 entities.append(BlockSensor(
-                    coordinator, device_id, desc, 0, "gas_sensor", "sensor_state"
+                    coordinator, device_id, desc, 0,
+                    "gas_sensor", "sensor_state",
                 ))
 
-    # Concentration
+    # Concentration – always create the entity when data is
+    # present; ``is_valid`` is used for availability, not entity
+    # creation (sensor may still be warming up at start-up).
     conc = status.get("concentration", {})
-    if conc and conc.get("is_valid"):
+    if conc and "ppm" in conc:
         desc = BLOCK_SENSORS.get(("sensor", "concentration"))
         if desc:
             uid = f"{device_id}_gas_concentration"

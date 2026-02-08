@@ -34,6 +34,7 @@ HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60
 # Platforms
 PLATFORMS = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.COVER,
     Platform.LIGHT,
     Platform.SENSOR,

@@ -141,30 +141,58 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
-        params: dict[str, Any] | None = None
         brightness = kwargs.get(ATTR_BRIGHTNESS)
-        if brightness is not None:
-            # Convert HA brightness (0-255) to Shelly percentage (0-100)
-            params = {"brightness": int(brightness * 100 / 255)}
-
-        await self.coordinator.send_command(
-            device_id=self._device_id,
-            cmd="light",
-            channel=self._channel,
-            action="on",
-            params=params,
+        response = await self._send_light_command(
+            on=True, brightness=brightness,
         )
+        if not self._is_command_ok(response):
+            return
         self._update_local_state(True, brightness=brightness)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
-        await self.coordinator.send_command(
+        response = await self._send_light_command(on=False)
+        if not self._is_command_ok(response):
+            return
+        self._update_local_state(False)
+
+    async def _send_light_command(
+        self, on: bool, brightness: int | None = None
+    ) -> dict | None:
+        """Send the appropriate command for Gen1 or Gen2 light."""
+        if self._is_gen2:
+            params: dict[str, Any] = {"id": self._channel, "on": on}
+            if brightness is not None:
+                params["brightness"] = int(brightness * 100 / 255)
+            return await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Light.Set",
+                params=params,
+            )
+        # Gen1: relay-style command with optional brightness param
+        extra: dict[str, Any] | None = None
+        if brightness is not None:
+            extra = {"brightness": int(brightness * 100 / 255)}
+        return await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="light",
             channel=self._channel,
-            action="off",
+            action="on" if on else "off",
+            params=extra,
         )
-        self._update_local_state(False)
+
+    @staticmethod
+    def _is_command_ok(response: dict | None) -> bool:
+        """Check if a command response indicates success."""
+        if response is None:
+            _LOGGER.warning("Light command failed: no response")
+            return False
+        data = response.get("data", {})
+        if isinstance(data, dict) and "isok" in data:
+            if not data["isok"]:
+                _LOGGER.error("Light command rejected: %s", data.get("res"))
+                return False
+        return True
 
     def _update_local_state(
         self, is_on: bool, brightness: int | None = None

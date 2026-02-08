@@ -119,23 +119,46 @@ class ShellySwitch(ShellyBaseEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        await self.coordinator.send_command(
-            device_id=self._device_id,
-            cmd="relay",
-            channel=self._channel,
-            action="on",
-        )
+        response = await self._send_switch_command(on=True)
+        if not self._is_command_ok(response):
+            return
         self._update_local_state(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        await self.coordinator.send_command(
+        response = await self._send_switch_command(on=False)
+        if not self._is_command_ok(response):
+            return
+        self._update_local_state(False)
+
+    async def _send_switch_command(self, on: bool) -> dict | None:
+        """Send the appropriate command for Gen1 or Gen2 switch."""
+        if self._is_gen2:
+            return await self.coordinator.send_jrpc_command(
+                device_id=self._device_id,
+                method="Switch.Set",
+                params={"id": self._channel, "on": on},
+            )
+        return await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="relay",
             channel=self._channel,
-            action="off",
+            action="on" if on else "off",
         )
-        self._update_local_state(False)
+
+    @staticmethod
+    def _is_command_ok(response: dict | None) -> bool:
+        """Check if a command response indicates success."""
+        if response is None:
+            _LOGGER.warning("Command failed: no response")
+            return False
+        # CommandResponse: data.isok, JrpcResponse: response.result
+        data = response.get("data", {})
+        if isinstance(data, dict) and "isok" in data:
+            if not data["isok"]:
+                _LOGGER.error("Command rejected: %s", data.get("res"))
+                return False
+        return True
 
     def _update_local_state(self, is_on: bool) -> None:
         """Update local state optimistically."""

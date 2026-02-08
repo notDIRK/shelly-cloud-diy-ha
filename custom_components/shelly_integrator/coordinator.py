@@ -82,6 +82,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._token_refresh_unsub: Callable[[], None] | None = None
         self._devices_ready = asyncio.Event()
         self._pending_verifications: set[str] = set()
+        self._settings_requested: set[str] = set()
 
         # Restore known devices from persistent storage
         self._restore_known_devices()
@@ -257,6 +258,40 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             timeout=timeout,
         )
 
+    async def send_jrpc_command(
+        self,
+        device_id: str,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 10.0,
+    ) -> dict | None:
+        """Send a JRPC command to a Gen2/Gen3 device.
+
+        Uses ``Shelly:JrpcRequest`` which is required for Gen2/Gen3
+        RPC methods (Switch.Set, Light.Set, Cover.Open, etc.).
+
+        Args:
+            device_id: Device ID
+            method: RPC method name (e.g. Switch.Set, Light.Set)
+            params: Method parameters
+            timeout: Response timeout
+
+        Returns:
+            JRPC response or None
+        """
+        host = self._device_host_map.get(device_id)
+        if not host:
+            _LOGGER.error("No host for device %s", device_id)
+            return None
+
+        return await self._websocket.send_jrpc_request(
+            host=host,
+            device_id=device_id,
+            method=method,
+            params=params,
+            timeout=timeout,
+        )
+
     async def _handle_ws_message(self, message: dict, host: str) -> None:
         """Handle incoming WebSocket message.
 
@@ -324,25 +359,46 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dev = device_settings.get("device", {})
                     device_name = dev.get("hostname")
 
-            # Replace device data entirely -- Shelly response is
-            # the source of truth.  Preserve only ``settings``
-            # which arrives via a separate Shelly:Settings event.
-            prev_settings = existing.get("settings")
+            if device_status:
+                # DeviceVerify response — has full status data.
+                # Replace device data entirely (Shelly is source of
+                # truth).  Preserve only ``settings`` which arrives
+                # via a separate Shelly:Settings event.
+                prev_settings = existing.get("settings")
 
-            self.devices[device_id] = {
-                "status": device_status or {},
-                "device_type": device_type,
-                "device_code": device_code,
-                "name": device_name,
-                "access_groups": access_groups,
-                "online": bool(device_status),
-                "settings": prev_settings,
-            }
+                self.devices[device_id] = {
+                    "status": device_status,
+                    "device_type": device_type,
+                    "device_code": device_code,
+                    "name": device_name or existing.get("name"),
+                    "access_groups": access_groups,
+                    "online": True,
+                    "settings": prev_settings,
+                }
 
-            _LOGGER.info(
-                "Device verified: %s (name=%s, type=%s)",
-                device_id, device_name, device_type
-            )
+                _LOGGER.info(
+                    "Device verified: %s (name=%s, type=%s)",
+                    device_id,
+                    device_name or existing.get("name"),
+                    device_type,
+                )
+            else:
+                # DeviceGetSettings response — no status data.
+                # Merge into existing device data without
+                # overwriting status or online flag.
+                if device_name:
+                    existing["name"] = device_name
+                if device_code:
+                    existing["device_code"] = device_code
+                if device_type:
+                    existing["device_type"] = device_type
+
+                self.devices[device_id] = existing
+
+                _LOGGER.info(
+                    "Device settings updated: %s (name=%s)",
+                    device_id, device_name,
+                )
 
             self.async_set_updated_data(self.devices)
 
@@ -352,7 +408,12 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Request settings so hostname becomes available
             # (needed for CSV fetch in historical sync).
-            if not device_name:
+            # Guard with _settings_requested to prevent an infinite
+            # loop: DeviceGetSettings response is also an
+            # ActionResponse with result=OK, which would re-trigger
+            # this block if device_name is still None.
+            if not device_name and device_id not in self._settings_requested:
+                self._settings_requested.add(device_id)
                 await self._websocket.send_action_request(
                     host, "DeviceGetSettings", device_id
                 )
@@ -365,9 +426,15 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
     async def _handle_status_change(self, message: dict, host: str) -> None:
-        """Handle Shelly:StatusOnChange event."""
+        """Handle Shelly:StatusOnChange event.
+
+        StatusOnChange may deliver only the CHANGED portion of the
+        device status (especially for Gen2 RPC devices).  We must
+        merge the incoming fields into the existing status so that
+        unchanged keys (e.g. gas_sensor, concentration) are preserved.
+        """
         device_id = message.get("deviceId")
-        status = message.get("status", {})
+        new_status = message.get("status", {})
 
         if not device_id:
             return
@@ -375,10 +442,16 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         is_new = device_id not in self.devices
         self._device_host_map[device_id] = host
 
-        # Update device
+        # Merge incoming status into existing status instead of
+        # replacing.  Shallow merge at the top level preserves keys
+        # not present in the partial update.
+        existing = self.devices.get(device_id, {})
+        existing_status = existing.get("status", {})
+        merged_status = {**existing_status, **new_status}
+
         self.devices[device_id] = {
-            **self.devices.get(device_id, {}),
-            "status": status,
+            **existing,
+            "status": merged_status,
             "online": True,
         }
 
@@ -441,6 +514,7 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         self._device_host_map.pop(device_id, None)
         self.devices.pop(device_id, None)
+        self._settings_requested.discard(device_id)
         await self._persist_known_devices()
 
         if remove_from_registry:
