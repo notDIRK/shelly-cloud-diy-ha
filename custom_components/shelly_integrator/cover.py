@@ -166,11 +166,12 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         if self._is_gen2:
-            await self.coordinator.send_jrpc_command(
+            response = await self.coordinator.send_jrpc_command(
                 device_id=self._device_id,
                 method="Cover.Open",
                 params={"id": self._channel},
             )
+            self._check_response(response, "open")
         else:
             await self.coordinator.send_command(
                 device_id=self._device_id,
@@ -182,11 +183,12 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
         if self._is_gen2:
-            await self.coordinator.send_jrpc_command(
+            response = await self.coordinator.send_jrpc_command(
                 device_id=self._device_id,
                 method="Cover.Close",
                 params={"id": self._channel},
             )
+            self._check_response(response, "close")
         else:
             await self.coordinator.send_command(
                 device_id=self._device_id,
@@ -198,11 +200,12 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the cover."""
         if self._is_gen2:
-            await self.coordinator.send_jrpc_command(
+            response = await self.coordinator.send_jrpc_command(
                 device_id=self._device_id,
                 method="Cover.Stop",
                 params={"id": self._channel},
             )
+            self._check_response(response, "stop")
         else:
             await self.coordinator.send_command(
                 device_id=self._device_id,
@@ -217,11 +220,12 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
         if position is None:
             return
         if self._is_gen2:
-            await self.coordinator.send_jrpc_command(
+            response = await self.coordinator.send_jrpc_command(
                 device_id=self._device_id,
                 method="Cover.GoToPosition",
                 params={"id": self._channel, "pos": position},
             )
+            self._check_response(response, f"set position to {position}")
         else:
             # API uses dedicated "roller_to_pos" command for positioning
             await self.coordinator.send_command(
@@ -231,3 +235,24 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
                 action="to_pos",
                 params={"pos": position},
             )
+
+    def _check_response(self, response: dict | None, action: str) -> None:
+        """Check JRPC response for errors and log if needed."""
+        if response is None:
+            _LOGGER.warning("Cover %s failed: no response", action)
+            return
+
+        # Check for JRPC error response
+        jrpc_response = response.get("response", {})
+        if "error" in jrpc_response:
+            error = jrpc_response.get("error")
+            if error == "UNAUTHORIZED":
+                _LOGGER.error(
+                    "Cover %s UNAUTHORIZED - check logs for access "
+                    "diagnostics. You may need to grant control "
+                    "permissions at "
+                    "https://my.shelly.cloud/integrator.html",
+                    action
+                )
+            else:
+                _LOGGER.error("Cover %s JRPC error: %s", action, error)

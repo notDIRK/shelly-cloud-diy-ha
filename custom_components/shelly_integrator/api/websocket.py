@@ -230,6 +230,15 @@ class ShellyWebSocket:
             await ws.send_json(command)
             result = await asyncio.wait_for(future, timeout=timeout)
             _LOGGER.debug("JRPC response: %s", result)
+
+            # Log additional details if UNAUTHORIZED error received
+            if result.get("response", {}).get("error") == "UNAUTHORIZED":
+                _LOGGER.error(
+                    "JRPC UNAUTHORIZED: device=%s, method=%s, "
+                    "full_response=%s",
+                    device_id, method, result
+                )
+
             return result
         except asyncio.TimeoutError:
             _LOGGER.warning(

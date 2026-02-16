@@ -152,12 +152,28 @@ class ShellySwitch(ShellyBaseEntity, SwitchEntity):
         if response is None:
             _LOGGER.warning("Command failed: no response")
             return False
-        # CommandResponse: data.isok, JrpcResponse: response.result
+
+        # Check for JRPC error response (Gen2/Gen3)
+        jrpc_response = response.get("response", {})
+        if "error" in jrpc_response:
+            error = jrpc_response.get("error")
+            if error == "UNAUTHORIZED":
+                _LOGGER.error(
+                    "Command UNAUTHORIZED - check logs for access "
+                    "diagnostics. You may need to grant control "
+                    "permissions at https://my.shelly.cloud/integrator.html"
+                )
+            else:
+                _LOGGER.error("JRPC error: %s", error)
+            return False
+
+        # Check for CommandResponse (Gen1)
         data = response.get("data", {})
         if isinstance(data, dict) and "isok" in data:
             if not data["isok"]:
                 _LOGGER.error("Command rejected: %s", data.get("res"))
                 return False
+
         return True
 
     def _update_local_state(self, is_on: bool) -> None:

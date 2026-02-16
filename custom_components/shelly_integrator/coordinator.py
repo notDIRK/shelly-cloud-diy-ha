@@ -258,6 +258,37 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             timeout=timeout,
         )
 
+    def _validate_device_access(self, device_id: str, operation: str = "control") -> bool:
+        """Validate device access permissions (for debugging UNAUTHORIZED errors).
+        
+        Args:
+            device_id: Device ID
+            operation: Operation type (e.g., "control", "read")
+        
+        Returns:
+            True if access is granted, False otherwise
+        """
+        device_data = self.devices.get(device_id, {})
+        access_groups = device_data.get("access_groups", "00")
+        
+        # Check if control bit is set (first bit = 0x01)
+        has_control = int(access_groups, 16) & 0x01
+        
+        _LOGGER.debug(
+            "Device %s access validation: accessGroups=%s, has_control=%s",
+            device_id, access_groups, bool(has_control)
+        )
+        
+        if not has_control:
+            _LOGGER.error(
+                "Device %s has read-only access (accessGroups=%s). "
+                "Grant control permissions at https://my.shelly.cloud/integrator.html",
+                device_id, access_groups
+            )
+            return False
+        
+        return True
+
     async def send_jrpc_command(
         self,
         device_id: str,
@@ -284,13 +315,23 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.error("No host for device %s", device_id)
             return None
 
-        return await self._websocket.send_jrpc_request(
+        response = await self._websocket.send_jrpc_request(
             host=host,
             device_id=device_id,
             method=method,
             params=params,
             timeout=timeout,
         )
+        
+        # Validate device access if UNAUTHORIZED error is received
+        if response and response.get("response", {}).get("error") == "UNAUTHORIZED":
+            _LOGGER.warning(
+                "UNAUTHORIZED error for device %s method %s - running diagnostics",
+                device_id, method
+            )
+            self._validate_device_access(device_id)
+        
+        return response
 
     async def _handle_ws_message(self, message: dict, host: str) -> None:
         """Handle incoming WebSocket message.
