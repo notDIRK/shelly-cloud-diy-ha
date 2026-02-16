@@ -268,24 +268,60 @@ class ShellyIntegratorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns:
             True if access is granted, False otherwise
         """
-        device_data = self.devices.get(device_id, {})
+        device_data = self.devices.get(device_id)
+        
+        if not device_data:
+            _LOGGER.error(
+                "Device %s not found in coordinator devices. "
+                "Available devices: %s",
+                device_id, list(self.devices.keys())
+            )
+            return False
+        
         access_groups = device_data.get("access_groups", "00")
         
         # Check if control bit is set (first bit = 0x01)
-        has_control = int(access_groups, 16) & 0x01
+        try:
+            has_control = int(access_groups, 16) & 0x01
+        except (ValueError, TypeError):
+            _LOGGER.error(
+                "Invalid accessGroups value for device %s: %s",
+                device_id, access_groups
+            )
+            return False
         
-        _LOGGER.debug(
-            "Device %s access validation: accessGroups=%s, has_control=%s",
-            device_id, access_groups, bool(has_control)
+        # Always log at ERROR level for UNAUTHORIZED diagnostics
+        _LOGGER.error(
+            "UNAUTHORIZED Diagnostics for device %s: "
+            "accessGroups='%s', has_control=%s, device_online=%s, "
+            "device_code=%s, device_type=%s",
+            device_id, access_groups, bool(has_control),
+            device_data.get("online", False),
+            device_data.get("device_code", "unknown"),
+            device_data.get("device_type", "unknown")
+        )
+        
+        # Log full device data for debugging
+        _LOGGER.error(
+            "Full device data for %s: %s",
+            device_id, device_data
         )
         
         if not has_control:
             _LOGGER.error(
-                "Device %s has read-only access (accessGroups=%s). "
-                "Grant control permissions at https://my.shelly.cloud/integrator.html",
+                "Device %s has READ-ONLY access (accessGroups=%s). "
+                "Grant control permissions at "
+                "https://my.shelly.cloud/integrator.html",
                 device_id, access_groups
             )
             return False
+        
+        _LOGGER.error(
+            "Device %s HAS control permission (accessGroups=%s) but still "
+            "UNAUTHORIZED. Possible causes: JWT token expired, device "
+            "removed from integration, or cloud API issue.",
+            device_id, access_groups
+        )
         
         return True
 
