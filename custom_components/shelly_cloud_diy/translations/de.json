@@ -19,14 +19,12 @@
       },
       "devices": {
         "title": "Geräte auswählen",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Standardmäßig werden nur die unten angehakten Geräte als Home-Assistant-Entities angelegt. So entstehen keine doppelten Entities, falls parallel die eingebaute Shelly-LAN-Integration läuft.",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Alle Geräte sind vorausgewählt — hake aus, was du nicht in Home Assistant haben willst. Bleiben alle angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert. Sobald du ein Gerät abwählst, wird die Auswahl explizit und neue Geräte bleiben aus bis du sie hier hinzufügst. Nützlich, wenn du parallel die eingebaute Shelly-LAN-Integration nutzt und Doppel-Entities vermeiden willst.",
         "data": {
-          "create_all_initially": "Entities für alle Geräte anlegen",
           "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
         },
         "data_description": {
-          "create_all_initially": "Anhaken, um für jedes sichtbare Gerät Entities anzulegen (auch für später hinzukommende). Leer lassen, um unten gezielt auszuwählen.",
-          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt. Wird ignoriert, wenn \"Entities für alle Geräte anlegen\" aktiv ist."
+          "enabled_devices": "Alle Geräte sind vorausgewählt. Hake aus, was du ausschließen möchtest. Offline-Geräte sind mit ⚠ markiert."
         }
       },
       "reauth_confirm": {
@@ -66,13 +64,11 @@
       },
       "devices": {
         "title": "Geräte auswählen",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). \"Entities für alle Geräte anlegen\" anhaken, um alle zu spiegeln — oder unten gezielt eine Teilmenge wählen.",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Bleiben alle angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert; sobald du ein Gerät abwählst, wird die Auswahl explizit.",
         "data": {
-          "create_all_initially": "Entities für alle Geräte anlegen",
           "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
         },
         "data_description": {
-          "create_all_initially": "Wenn aktiv, wird für jedes sichtbare Gerät eine Entity-Sammlung angelegt — auch für Geräte, die später zum Konto hinzukommen.",
           "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt. Offline-Geräte sind mit ⚠ markiert."
         }
       }

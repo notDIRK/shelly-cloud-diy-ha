@@ -239,31 +239,34 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Second step — pick which devices get materialised as entities."""
+        """Second step — pick which devices get materialised as entities.
+
+        UX: the picker shows every device pre-ticked so the common case
+        ("I want all of them") is a single click through. To exclude a
+        device, untick it. If you leave every box ticked, new devices
+        added to the Shelly account later get auto-enabled too
+        (``create_all_initially=True`` is inferred). If you untick any
+        device, the set becomes explicit and future devices stay off
+        until you add them via the options flow.
+        """
         options = _build_device_options(
             self._pending_devices, self._pending_names
         )
+        all_ids = [opt["value"] for opt in options]
 
         if user_input is not None:
-            create_all = bool(user_input.get(CONF_CREATE_ALL_INITIALLY, False))
             selected = user_input.get(CONF_ENABLED_DEVICES) or []
             if not isinstance(selected, list):
                 selected = [selected]
+            selected = [d for d in selected if isinstance(d, str)]
+
+            # "All ticked" → auto-enable future devices too. Any deselection
+            # flips the semantics to "explicit list".
+            create_all = set(selected) == set(all_ids) and len(all_ids) > 0
 
             entry_options = dict(self._pending_options)
-            if create_all:
-                entry_options[CONF_CREATE_ALL_INITIALLY] = True
-                # Preserve the full id list so that if the user later
-                # unticks "all devices" in the options flow, we have a
-                # sensible default to pre-populate.
-                entry_options[CONF_ENABLED_DEVICES] = list(
-                    self._pending_devices.keys()
-                )
-            else:
-                entry_options[CONF_CREATE_ALL_INITIALLY] = False
-                entry_options[CONF_ENABLED_DEVICES] = [
-                    d for d in selected if isinstance(d, str)
-                ]
+            entry_options[CONF_CREATE_ALL_INITIALLY] = create_all
+            entry_options[CONF_ENABLED_DEVICES] = selected
 
             return self.async_create_entry(
                 title="Shelly Cloud DIY",
@@ -274,10 +277,7 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Optional(
-                    CONF_CREATE_ALL_INITIALLY, default=False
-                ): bool,
-                vol.Optional(
-                    CONF_ENABLED_DEVICES, default=[]
+                    CONF_ENABLED_DEVICES, default=all_ids
                 ): SelectSelector(
                     SelectSelectorConfig(
                         options=options,
@@ -424,48 +424,47 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
     async def async_step_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Second step — update the opt-in device selection."""
+        """Second step — update the opt-in device selection.
+
+        Same UX rule as the config flow: leaving every device ticked
+        keeps ``create_all_initially`` true so future devices auto-enable;
+        unticking any device makes the set explicit.
+        """
         options = _build_device_options(
             self._pending_devices, self._pending_names
         )
+        all_ids = [opt["value"] for opt in options]
 
         if user_input is not None:
-            create_all = bool(user_input.get(CONF_CREATE_ALL_INITIALLY, False))
             selected = user_input.get(CONF_ENABLED_DEVICES) or []
             if not isinstance(selected, list):
                 selected = [selected]
+            selected = [d for d in selected if isinstance(d, str)]
+
+            create_all = set(selected) == set(all_ids) and len(all_ids) > 0
 
             entry_options = dict(self._pending_base_options)
-            if create_all:
-                entry_options[CONF_CREATE_ALL_INITIALLY] = True
-                entry_options[CONF_ENABLED_DEVICES] = list(
-                    self._pending_devices.keys()
-                )
-            else:
-                entry_options[CONF_CREATE_ALL_INITIALLY] = False
-                entry_options[CONF_ENABLED_DEVICES] = [
-                    d for d in selected if isinstance(d, str)
-                ]
+            entry_options[CONF_CREATE_ALL_INITIALLY] = create_all
+            entry_options[CONF_ENABLED_DEVICES] = selected
             return self._save(entry_options)
 
         current_opts = self.config_entry.options
-        default_create_all = bool(
-            current_opts.get(CONF_CREATE_ALL_INITIALLY, False)
-        )
-        raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
-        if isinstance(raw_enabled, list):
-            default_enabled = [d for d in raw_enabled if isinstance(d, str)]
+        if current_opts.get(CONF_CREATE_ALL_INITIALLY):
+            # Existing install using "all devices" mode — pre-tick every
+            # currently-visible device so the user sees the live fleet.
+            default_enabled = all_ids
         else:
-            # Pre-v0.4.0 entry being edited for the first time — default
-            # to "all currently visible" so the user sees their fleet
-            # pre-ticked instead of empty.
-            default_enabled = list(self._pending_devices.keys())
+            raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
+            if isinstance(raw_enabled, list):
+                default_enabled = [d for d in raw_enabled if isinstance(d, str)]
+            else:
+                # Pre-v0.4.0 entry being edited for the first time — default
+                # to "all currently visible" so the user sees their fleet
+                # pre-ticked instead of empty.
+                default_enabled = all_ids
 
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_CREATE_ALL_INITIALLY, default=default_create_all
-                ): bool,
                 vol.Optional(
                     CONF_ENABLED_DEVICES, default=default_enabled
                 ): SelectSelector(

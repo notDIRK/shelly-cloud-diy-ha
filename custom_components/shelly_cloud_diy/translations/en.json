@@ -19,14 +19,12 @@
       },
       "devices": {
         "title": "Choose devices to expose",
-        "description": "The Shelly Cloud account exposes {total} device(s). By default, only the devices you tick below will be materialised as Home Assistant entities. This prevents duplicate entities if you already run the built-in Shelly (LAN) integration alongside this one.",
+        "description": "The Shelly Cloud account exposes {total} device(s). Every device is pre-ticked — untick any you do not want in Home Assistant. If you leave all ticked, new devices you add to the Shelly account later will also be auto-enabled; if you untick even one, the selection becomes explicit and future additions stay off until you tick them here. Useful if you also run the built-in Shelly (LAN) integration and want to avoid duplicates.",
         "data": {
-          "create_all_initially": "Create entities for all devices",
           "enabled_devices": "Devices to expose as entities"
         },
         "data_description": {
-          "create_all_initially": "Tick to always create entities for every device the account can see (including future ones). Leave unticked to curate the list below.",
-          "enabled_devices": "Only ticked devices will produce Home Assistant entities. Ignored if \"Create entities for all devices\" is ticked."
+          "enabled_devices": "Every device is pre-ticked. Untick any you want to exclude. Offline devices are marked with ⚠."
         }
       },
       "reauth_confirm": {
@@ -66,13 +64,11 @@
       },
       "devices": {
         "title": "Choose devices to expose",
-        "description": "The Shelly Cloud account exposes {total} device(s). Tick \"Create entities for all devices\" to mirror every device, or pick a subset below.",
+        "description": "The Shelly Cloud account exposes {total} device(s). Leaving all devices ticked keeps future-device auto-enable on; unticking any device switches to an explicit list.",
         "data": {
-          "create_all_initially": "Create entities for all devices",
           "enabled_devices": "Devices to expose as entities"
         },
         "data_description": {
-          "create_all_initially": "When ticked, every device the account can see is materialised — including any that are added to the Shelly account in the future.",
           "enabled_devices": "Only ticked devices produce Home Assistant entities. Offline devices are marked with ⚠."
         }
       }
