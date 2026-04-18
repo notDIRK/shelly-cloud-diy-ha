@@ -3,9 +3,8 @@
   "name": "Shelly Cloud DIY",
   "codeowners": ["@notDIRK"],
   "config_flow": true,
-  "dependencies": ["webhook"],
   "documentation": "https://github.com/notDIRK/shelly-cloud-diy-ha",
-  "iot_class": "cloud_push",
+  "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/notDIRK/shelly-cloud-diy-ha/issues",
   "requirements": ["aiohttp>=3.8.0", "aioshelly>=13.0.0"],
   "version": "0.3.0-dev"

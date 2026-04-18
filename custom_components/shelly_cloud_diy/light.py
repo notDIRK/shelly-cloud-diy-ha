@@ -16,7 +16,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import ShellyIntegratorCoordinator, SIGNAL_NEW_DEVICE
+from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Shelly Cloud DIY lights."""
-    coordinator: ShellyIntegratorCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: ShellyCloudCoordinator = hass.data[DOMAIN][entry.entry_id]
     created_entities: set[str] = set()
 
     def create_lights(device_id: str) -> list[LightEntity]:
@@ -94,7 +94,7 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
         channel: int,
         key: str,

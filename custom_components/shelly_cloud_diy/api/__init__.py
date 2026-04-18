@@ -1,11 +1,16 @@
-"""Shelly Cloud API layer.
+"""API layer — Shelly Cloud Control HTTP client."""
+from .cloud_control import (
+    ShellyCloudAuthError,
+    ShellyCloudControl,
+    ShellyCloudError,
+    ShellyCloudRateLimitError,
+    ShellyCloudTransportError,
+)
 
-This module handles all network communication with Shelly Cloud:
-- Authentication (JWT token management)
-- WebSocket connections
-- HTTP API calls
-"""
-from .auth import ShellyAuth
-from .websocket import ShellyWebSocket
-
-__all__ = ["ShellyAuth", "ShellyWebSocket"]
+__all__ = [
+    "ShellyCloudControl",
+    "ShellyCloudError",
+    "ShellyCloudAuthError",
+    "ShellyCloudTransportError",
+    "ShellyCloudRateLimitError",
+]

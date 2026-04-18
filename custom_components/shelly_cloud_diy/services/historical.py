@@ -29,7 +29,7 @@ from .notifications import NotificationService
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant, ServiceCall
-    from ..coordinator import ShellyIntegratorCoordinator
+    from ..coordinator import ShellyCloudCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class HistoricalDataService:
     def __init__(
         self,
         hass: HomeAssistant,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         entry: ConfigEntry,
     ) -> None:
         """Initialize historical data service.

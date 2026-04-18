@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shelly Cloud DIY",
+        "description": "Home Assistant an die Shelly Cloud anbinden. Öffne die Shelly-App → Benutzereinstellungen → Authorization cloud key → GET KEY, um die beiden Werte unten zu erhalten.",
+        "data": {
+          "auth_key": "Authorization cloud key",
+          "server_uri": "Server-URI",
+          "poll_interval": "Abfrageintervall (Sekunden)",
+          "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
+        },
+        "data_description": {
+          "auth_key": "Der lange String, der in der Shelly-App unter Authorization cloud key angezeigt wird.",
+          "server_uri": "Der Hostname unterhalb des Keys, z. B. shelly-42-eu.shelly.cloud.",
+          "poll_interval": "Wie oft Home Assistant die Shelly Cloud nach dem Gerätestatus abfragt. Standard 5 s; Bereich 3–60 s. Shelly erzwingt ein Limit von 1 Anfrage pro Sekunde.",
+          "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Shelly Cloud DIY erneut anmelden",
+        "description": "Die Shelly Cloud hat den gespeicherten Authorization cloud key abgelehnt. Füge einen frischen Key aus der Shelly-App ein (Benutzereinstellungen → Authorization cloud key), um den Zugriff wiederherzustellen.",
+        "data": {
+          "auth_key": "Authorization cloud key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Shelly Cloud ist nicht erreichbar. Prüfe die Server-URI und deine Internetverbindung.",
+      "invalid_auth": "Shelly Cloud hat den Authorization cloud key abgelehnt.",
+      "invalid_gateway_url": "Die lokale Gateway-URL muss http(s) sein und darf nicht auf localhost zeigen.",
+      "required": "Dieses Feld ist erforderlich.",
+      "unknown": "Unerwarteter Fehler — siehe Home-Assistant-Logs."
+    },
+    "abort": {
+      "already_configured": "Dieses Shelly-Konto ist bereits konfiguriert.",
+      "reauth_entry_missing": "Die Integration für die erneute Anmeldung konnte nicht gefunden werden.",
+      "reauth_successful": "Authorization cloud key aktualisiert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shelly Cloud DIY — Optionen",
+        "description": "Passt an, wie oft die Integration die Shelly Cloud abfragt, sowie optional die lokale Gateway-URL für den Historical-Data-Service.",
+        "data": {
+          "poll_interval": "Abfrageintervall (Sekunden)",
+          "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
+        },
+        "data_description": {
+          "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
+          "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
+        }
+      }
+    },
+    "error": {
+      "invalid_gateway_url": "Die lokale Gateway-URL muss http(s) sein und darf nicht auf localhost zeigen."
+    }
+  },
+  "services": {
+    "download_and_convert_history": {
+      "name": "Historische Energiedaten herunterladen und konvertieren",
+      "description": "Holt CSV-Exporte vom lokalen Shelly-Gateway und importiert sie in die Langzeitstatistik von Home Assistant.",
+      "fields": {
+        "gateway_url": {
+          "name": "Gateway-URL",
+          "description": "Basis-URL des lokalen Gateways (überschreibt die in den Optionen konfigurierte)."
+        },
+        "device_id": {
+          "name": "Geräte-ID",
+          "description": "Optional — Import auf ein einzelnes EM-Gerät beschränken. Leer lassen, um alle EM-Geräte zu importieren."
+        }
+      }
+    }
+  }
+}

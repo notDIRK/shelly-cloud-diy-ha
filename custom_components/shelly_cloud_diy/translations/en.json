@@ -3,70 +3,73 @@
     "step": {
       "user": {
         "title": "Shelly Cloud DIY",
-        "description": "Enter your Shelly Cloud DIY API token to connect to Shelly Cloud.",
+        "description": "Connect Home Assistant to the Shelly Cloud. Open the Shelly App → User settings → Authorization cloud key → GET KEY to obtain both values below.",
         "data": {
-          "integrator_token": "API Token",
-          "local_gateway_url": "Local Gateway URL (optional, for historical data)"
+          "auth_key": "Authorization cloud key",
+          "server_uri": "Server URI",
+          "poll_interval": "Poll interval (seconds)",
+          "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
+        },
+        "data_description": {
+          "auth_key": "The long string shown under Authorization cloud key in the Shelly App.",
+          "server_uri": "The hostname shown below the key, e.g. shelly-42-eu.shelly.cloud.",
+          "poll_interval": "How often Home Assistant polls Shelly Cloud for state. Default 5 s; range 3–60 s. Shelly enforces a 1 req/s rate limit.",
+          "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
         }
       },
-      "consent": {
-        "title": "Grant Device Access",
-        "description": "Click the link below to grant access to your Shelly devices:\n\n**[Open Shelly Cloud Consent Page]({consent_url})**\n\nYou will be asked to log into your Shelly Cloud account and select which devices to share with Home Assistant.\n\nAfter granting access, click **Submit** below to complete setup."
-      },
-      "reconfigure": {
-        "title": "Reconfigure Shelly Cloud DIY",
-        "description": "Update your settings below.\n\n**[Open Shelly Cloud Consent Page]({consent_url})**",
+      "reauth_confirm": {
+        "title": "Re-authenticate Shelly Cloud DIY",
+        "description": "The Shelly Cloud rejected the stored Authorization cloud key. Paste a fresh key from the Shelly App (User settings → Authorization cloud key) to restore access.",
         "data": {
-          "integrator_token": "API Token",
-          "local_gateway_url": "Local Gateway URL (optional, for historical data)"
+          "auth_key": "Authorization cloud key"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Shelly Cloud API",
-      "invalid_auth": "Invalid API token",
-      "invalid_gateway_url": "Local gateway URL must be http(s) and not point at localhost",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Could not reach Shelly Cloud. Check the server URI and your internet connection.",
+      "invalid_auth": "Shelly Cloud rejected the Authorization cloud key.",
+      "invalid_gateway_url": "Local gateway URL must be http(s) and must not point at localhost.",
+      "required": "This field is required.",
+      "unknown": "Unexpected error — see Home Assistant logs."
     },
     "abort": {
-      "already_configured": "Shelly Cloud DIY is already configured",
-      "reconfigure_successful": "Configuration updated successfully"
+      "already_configured": "This Shelly account is already configured.",
+      "reauth_entry_missing": "Could not find the integration to re-authenticate.",
+      "reauth_successful": "Authorization cloud key updated."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Shelly Cloud DIY Options",
-        "description": "**Add More Devices:**\n[Open Shelly Cloud Consent Page]({consent_url})\n\n**Update Settings:**\nLeave API Token empty to keep current token.",
+        "title": "Shelly Cloud DIY options",
+        "description": "Adjust how often the integration polls Shelly Cloud for state and, optionally, the local gateway URL used by the historical-data service.",
         "data": {
-          "integrator_token": "API Token (leave empty to keep current)",
-          "local_gateway_url": "Local Gateway URL (optional, for historical data)"
+          "poll_interval": "Poll interval (seconds)",
+          "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
+        },
+        "data_description": {
+          "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
+          "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Shelly Cloud API",
-      "invalid_auth": "Invalid API token",
-      "invalid_gateway_url": "Local gateway URL must be http(s) and not point at localhost"
+      "invalid_gateway_url": "Local gateway URL must be http(s) and must not point at localhost."
     }
   },
-  "entity": {
-    "sensor": {
-      "power": {
-        "name": "Power"
-      },
-      "energy": {
-        "name": "Energy"
-      }
-    },
-    "switch": {
-      "relay": {
-        "name": "Relay"
-      }
-    },
-    "light": {
-      "light": {
-        "name": "Light"
+  "services": {
+    "download_and_convert_history": {
+      "name": "Download and convert historical energy data",
+      "description": "Fetches CSV exports from the local Shelly gateway and imports them into Home Assistant's long-term statistics.",
+      "fields": {
+        "gateway_url": {
+          "name": "Gateway URL",
+          "description": "Base URL of the local gateway (overrides the one configured in options)."
+        },
+        "device_id": {
+          "name": "Device ID",
+          "description": "Optional — restrict the import to a single EM device. All EM devices are imported if omitted."
+        }
       }
     }
   }

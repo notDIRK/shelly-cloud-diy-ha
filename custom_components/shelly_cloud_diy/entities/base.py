@@ -14,12 +14,12 @@ from ..const import DOMAIN, is_gen2_status
 from .descriptions import get_model_name
 
 if TYPE_CHECKING:
-    from ..coordinator import ShellyIntegratorCoordinator
+    from ..coordinator import ShellyCloudCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
+class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
     """Base class for Shelly entities.
 
     Provides:
@@ -32,7 +32,7 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyIntegratorCoordinator"]):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
         channel: int = 0,
     ) -> None:

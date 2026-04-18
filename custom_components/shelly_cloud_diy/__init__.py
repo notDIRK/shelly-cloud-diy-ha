@@ -1,181 +1,190 @@
 """Shelly Cloud DIY integration for Home Assistant.
 
-This is the main entry point that orchestrates:
-- Integration setup and teardown
-- Service registration
-- Webhook registration
+Entry point that:
+- Validates the stored ``auth_key`` by hitting the Cloud Control API once.
+- Builds the polling coordinator and forwards to entity platforms.
+- Wires up the historical-data service (local-gateway flavour; unchanged
+  from the pre-pivot code path).
+- Provides ghost-entity purging on device removal from the HA UI.
+
+The pre-pivot Integrator-API machinery (JWT token refresh, WebSocket
+client, consent-callback webhook) is intentionally absent here. Those
+move to Milestone 2 when OAuth + WebSocket land.
 """
 from __future__ import annotations
 
 import logging
-import secrets
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.network import get_url
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.components.webhook import (
-    async_register as webhook_register,
-    async_unregister as webhook_unregister,
-)
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import (
-    DOMAIN,
-    INTEGRATOR_TAG,
-    PLATFORMS,
-    CONF_INTEGRATOR_TOKEN,
-    CONF_WEBHOOK_ID,
-    WEBHOOK_ID_LEGACY,
+from .api.cloud_control import (
+    ShellyCloudAuthError,
+    ShellyCloudControl,
+    ShellyCloudError,
+    ShellyCloudTransportError,
 )
-from .coordinator import ShellyIntegratorCoordinator
-from .api.auth import ShellyAuth
-from .core.consent import build_consent_url
-from .services.notifications import NotificationService
-from .services.webhook import WebhookHandler
+from .const import (
+    CONF_AUTH_KEY,
+    CONF_SERVER_URI,
+    DOMAIN,
+    PLATFORMS,
+)
+from .coordinator import ShellyCloudCoordinator
 from .services.historical import HistoricalDataService
 
 _LOGGER = logging.getLogger(__name__)
 
-# Default EU server for auto-connect
-DEFAULT_SERVER = "shelly-187-eu.shelly.cloud"
+
+# ── Setup / teardown ────────────────────────────────────────────────────
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Shelly Cloud DIY from a config entry."""
+    """Set up a Shelly Cloud DIY config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    auth_key = entry.data.get(CONF_AUTH_KEY)
+    server_uri = entry.data.get(CONF_SERVER_URI)
+    if not auth_key or not server_uri:
+        # Corrupt entry (e.g. hand-edited .storage) — force reauth.
+        raise ConfigEntryAuthFailed("Missing auth_key or server_uri")
+
     session = async_get_clientsession(hass)
-    token = entry.data[CONF_INTEGRATOR_TOKEN]
-
-    # Migrate entries that predate the per-install randomised webhook id
-    # (or had the legacy hardcoded one). Anyone reaching an HA instance
-    # externally could previously POST to a guessable webhook URL — the
-    # new per-install id moves that from public-fact to shared-secret.
-    webhook_id = entry.data.get(CONF_WEBHOOK_ID)
-    if not webhook_id or webhook_id == WEBHOOK_ID_LEGACY:
-        webhook_id = secrets.token_urlsafe(16)
-        hass.config_entries.async_update_entry(
-            entry,
-            data={**entry.data, CONF_WEBHOOK_ID: webhook_id},
-        )
-        _LOGGER.info("Generated per-install webhook id for config entry")
-
-    # Initialize authentication
-    auth = ShellyAuth(session, INTEGRATOR_TAG, token)
+    api = ShellyCloudControl(session, server_uri, auth_key)
 
     try:
-        jwt_token = await auth.get_jwt_token()
-    except Exception as err:
-        raise ConfigEntryNotReady(f"Failed to get JWT token: {err}") from err
+        device_count = await api.validate()
+    except ShellyCloudAuthError as err:
+        raise ConfigEntryAuthFailed(str(err)) from err
+    except ShellyCloudTransportError as err:
+        raise ConfigEntryNotReady(f"Cannot reach {server_uri}: {err}") from err
+    except ShellyCloudError as err:
+        raise ConfigEntryNotReady(f"Shelly Cloud API error: {err}") from err
 
-    # Create coordinator
-    coordinator = ShellyIntegratorCoordinator(
-        hass=hass,
-        session=session,
-        tag=INTEGRATOR_TAG,
-        token=token,
-        jwt_token=jwt_token,
-        entry=entry,
+    _LOGGER.info(
+        "Shelly Cloud DIY: connected to %s, %d device(s) visible",
+        server_uri,
+        device_count,
     )
 
+    coordinator = ShellyCloudCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Set up webhook (per-install randomised id — see migration above)
-    webhook_handler = WebhookHandler(hass, coordinator)
-    webhook_register(
-        hass,
-        DOMAIN,
-        "Shelly Cloud DIY Callback",
-        webhook_id,
-        lambda h, w, r: webhook_handler.handle_request(r),
-    )
-    hass.data[DOMAIN][f"{entry.entry_id}_webhook"] = webhook_id
-
-    # Auto-connect to default server and wait for devices
-    _LOGGER.info("Connecting to default server: %s", DEFAULT_SERVER)
-    await coordinator.connect_to_host(DEFAULT_SERVER)
-
-    # Wait for known devices to be verified before setting up platforms
-    await coordinator.async_wait_for_devices(timeout=5.0)
-
-    # Purge ghost entities left over from previously deleted devices
-    # so they get recreated fresh with current naming format
+    # Purge ghost entity records left over from previously-deleted devices
+    # so a later re-add produces fresh entity IDs (carried over from the
+    # pre-pivot code — still useful because HA keeps deleted-entity
+    # bookkeeping regardless of the underlying API).
     _purge_deleted_entities(hass, entry)
 
-    # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Show consent notification
-    notifications = NotificationService(hass)
-    try:
-        ha_url = get_url(hass, prefer_external=True)
-        consent_url = build_consent_url(INTEGRATOR_TAG, ha_url, webhook_id)
-        notifications.show_setup_notification(consent_url)
-        _LOGGER.info("Consent URL: %s", consent_url)
-    except Exception as err:
-        _LOGGER.warning("Could not create consent notification: %s", err)
-
-    # Set up historical data service (single instance for both
-    # manual service calls and automatic sync)
+    # Historical-data service (local-gateway CSV flow, unchanged from
+    # pre-pivot). Kept here so existing users of the download service
+    # retain that capability through the pivot.
     historical_service = HistoricalDataService(hass, coordinator, entry)
     hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
-
-    await _register_services(hass, entry, historical_service)
+    await _register_services(hass, historical_service)
     await historical_service.setup_auto_sync()
 
-    # Options update listener
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
 
 
-# ── Deleted-entity purge ─────────────────────────────────────
-#
-# When a device is deleted from the HA UI, HA moves its entities
-# to ``deleted_entities`` in the entity registry.  If the same
-# device is later re-added, HA matches on ``unique_id`` and
-# restores the OLD entity_id – even if the naming format has
-# changed.
-#
-# To guarantee a completely fresh start after deletion we purge
-# those ghost records:
-#   1. On every startup (catches anything left from previous runs)
-#   2. Shortly after a device is deleted from the UI (so an
-#      immediate re-add within the same session also starts fresh)
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Tear down a config entry cleanly."""
+    historical: HistoricalDataService | None = hass.data[DOMAIN].pop(
+        f"{entry.entry_id}_historical", None
+    )
+    if historical:
+        historical.cancel_auto_sync()
+
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+    return unload_ok
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload when the user changes poll interval / gateway URL."""
+    _LOGGER.info("Shelly Cloud DIY: options changed, reloading")
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+# ── Service registration ────────────────────────────────────────────────
+
+
+async def _register_services(
+    hass: HomeAssistant, historical_service: HistoricalDataService
+) -> None:
+    """Register integration-wide services.
+
+    Only ``download_and_convert_history`` is registered here — it operates
+    against the local gateway URL and is unchanged across the pivot.
+    """
+    if not hass.services.has_service(DOMAIN, "download_and_convert_history"):
+        hass.services.async_register(
+            DOMAIN,
+            "download_and_convert_history",
+            historical_service.handle_service_call,
+            schema=vol.Schema(
+                {
+                    vol.Optional("gateway_url"): cv.string,
+                    vol.Optional("device_id"): cv.string,
+                }
+            ),
+        )
+        _LOGGER.info("Registered service: shelly_cloud_diy.download_and_convert_history")
+
+
+# ── Device removal & ghost-entity purge ─────────────────────────────────
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Allow the user to delete an individual device from the HA UI.
+
+    Removes the device's live entities and any ghost entries in the
+    entity registry so a later re-add starts fresh.
+    """
+    device_id: str | None = None
+    for identifier in device_entry.identifiers:
+        if identifier[0] == DOMAIN:
+            device_id = identifier[1]
+            break
+
+    if not device_id:
+        return False
+
+    _purge_device_entities(hass, config_entry.entry_id, device_entry.id, device_id)
+    return True
 
 
 def _purge_deleted_entities(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
-    """Remove ghost entity records for this config entry.
-
-    HA stores deleted entities keyed by (domain, platform,
-    unique_id).  We iterate and drop every entry that belongs
-    to our config entry so that re-added devices get fresh
-    entity IDs.
-    """
+    """Drop ``deleted_entities`` records for this config entry."""
     ent_reg = er.async_get(hass)
     deleted = ent_reg.deleted_entities
     to_remove = [
-        key for key, e in deleted.items()
-        if e.config_entry_id == entry.entry_id
+        key for key, e in deleted.items() if e.config_entry_id == entry.entry_id
     ]
     if not to_remove:
         return
-
     for key in to_remove:
         deleted.pop(key, None)
-
     ent_reg.async_schedule_save()
-    _LOGGER.info(
-        "Purged %d ghost entity records", len(to_remove)
-    )
+    _LOGGER.info("Purged %d ghost entity records", len(to_remove))
 
 
 def _purge_device_entities(
@@ -184,24 +193,8 @@ def _purge_device_entities(
     ha_device_id: str,
     shelly_device_id: str,
 ) -> None:
-    """Remove all entities for a device and purge their ghost records.
-
-    Called synchronously (within the event loop) from
-    ``async_remove_config_entry_device`` *before* returning True.
-    This avoids any arbitrary sleep: we proactively remove the
-    entities, then immediately clean up ``deleted_entities`` so
-    a future re-add starts completely fresh.
-
-    Args:
-        hass: Home Assistant instance
-        config_entry_id: Config entry ID
-        ha_device_id: HA internal device ID (device_entry.id)
-        shelly_device_id: Shelly Cloud device ID
-    """
+    """Remove every entity of a device and purge ghost records."""
     ent_reg = er.async_get(hass)
-
-    # Step 1: Remove all live entities for this device.
-    # async_remove moves each entity into ``deleted_entities``.
     entities = er.async_entries_for_device(
         ent_reg, ha_device_id, include_disabled_entities=True
     )
@@ -211,123 +204,20 @@ def _purge_device_entities(
     if not entities:
         return
 
-    # Step 2: Purge the ghost records we just created so
-    # re-adding the same device produces fresh entity IDs.
     deleted = ent_reg.deleted_entities
     to_remove = [
         key for key, e in deleted.items()
         if e.config_entry_id == config_entry_id
         and shelly_device_id in (e.unique_id or "")
     ]
-    if not to_remove:
-        return
+    if to_remove:
+        for key in to_remove:
+            deleted.pop(key, None)
+        ent_reg.async_schedule_save()
 
-    for key in to_remove:
-        deleted.pop(key, None)
-
-    ent_reg.async_schedule_save()
     _LOGGER.info(
-        "Removed %d entities and purged ghost records "
-        "for device %s",
+        "Removed %d entities and purged %d ghost records for device %s",
         len(entities),
+        len(to_remove),
         shelly_device_id,
     )
-
-
-# ── Service registration ─────────────────────────────────────
-
-async def _register_services(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    historical_service: HistoricalDataService,
-) -> None:
-    """Register integration services."""
-    if not hass.services.has_service(DOMAIN, "download_and_convert_history"):
-        hass.services.async_register(
-            DOMAIN,
-            "download_and_convert_history",
-            historical_service.handle_service_call,
-            schema=vol.Schema({
-                vol.Optional("gateway_url"): cv.string,
-                vol.Optional("device_id"): cv.string,
-            }),
-        )
-        _LOGGER.info("Registered service: shelly_cloud_diy.download_and_convert_history")
-
-
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update by reloading the integration."""
-    _LOGGER.info("Options updated, reloading Shelly Cloud DIY")
-    await hass.config_entries.async_reload(entry.entry_id)
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    coordinator: ShellyIntegratorCoordinator = hass.data[DOMAIN][entry.entry_id]
-
-    # Dismiss notifications
-    NotificationService(hass).dismiss_setup_notification()
-
-    # Unregister webhook
-    webhook_id = hass.data[DOMAIN].pop(f"{entry.entry_id}_webhook", None)
-    if webhook_id:
-        webhook_unregister(hass, webhook_id)
-
-    # Cancel historical sync
-    historical: HistoricalDataService | None = hass.data[DOMAIN].pop(
-        f"{entry.entry_id}_historical", None
-    )
-    if historical:
-        historical.cancel_auto_sync()
-
-    # Close coordinator
-    await coordinator.async_close()
-
-    # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    return unload_ok
-
-
-async def async_remove_config_entry_device(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    device_entry: dr.DeviceEntry,
-) -> bool:
-    """Allow user to delete a Shelly device from HA UI.
-
-    Enables the "Delete" button on device pages.  When clicked:
-    1. All entities for the device are removed and ghost
-       records purged synchronously (no arbitrary sleep)
-    2. Coordinator memory + persistent storage are cleaned
-    3. We return True so HA removes the device entry
-    """
-    coordinator: ShellyIntegratorCoordinator = (
-        hass.data[DOMAIN][config_entry.entry_id]
-    )
-
-    # Extract Shelly device ID from HA device identifiers
-    device_id = None
-    for identifier in device_entry.identifiers:
-        if identifier[0] == DOMAIN:
-            device_id = identifier[1]
-            break
-
-    if not device_id:
-        return False
-
-    # Proactively remove entities and purge ghost records
-    # before HA's cascade removal — fully deterministic,
-    # no sleep required.
-    _purge_device_entities(
-        hass,
-        config_entry.entry_id,
-        device_entry.id,
-        device_id,
-    )
-
-    await coordinator.async_remove_device(device_id)
-    return True

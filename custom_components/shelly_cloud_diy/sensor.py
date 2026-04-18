@@ -12,7 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, is_gen2_status
-from .coordinator import ShellyIntegratorCoordinator, SIGNAL_NEW_DEVICE
+from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 from .entities.descriptions import (
     BLOCK_SENSORS,
@@ -30,7 +30,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Shelly Cloud DIY sensors."""
-    coordinator: ShellyIntegratorCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: ShellyCloudCoordinator = hass.data[DOMAIN][entry.entry_id]
     created_sensors: set[str] = set()
 
     def create_sensors(device_id: str) -> list[SensorEntity]:
@@ -86,7 +86,7 @@ def _create_block_sensors(
     device_id: str,
     status: dict[str, Any],
     created: set[str],
-    coordinator: ShellyIntegratorCoordinator,
+    coordinator: ShellyCloudCoordinator,
 ) -> list[SensorEntity]:
     """Create Gen1 Block sensors."""
     entities: list[SensorEntity] = []
@@ -177,7 +177,7 @@ def _create_rpc_sensors(
     device_id: str,
     status: dict[str, Any],
     created: set[str],
-    coordinator: ShellyIntegratorCoordinator,
+    coordinator: ShellyCloudCoordinator,
 ) -> list[SensorEntity]:
     """Create Gen2/Gen3 RPC sensors."""
     entities: list[SensorEntity] = []
@@ -224,7 +224,7 @@ class BlockSensor(ShellyBaseEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
         description: BlockSensorDescription,
         channel: int,
@@ -281,7 +281,7 @@ class RpcSensor(ShellyBaseEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
         description: RpcSensorDescription,
         channel: int,

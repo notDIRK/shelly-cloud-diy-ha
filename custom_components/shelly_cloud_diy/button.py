@@ -17,7 +17,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import ShellyIntegratorCoordinator, SIGNAL_NEW_DEVICE
+from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Shelly Cloud DIY buttons."""
-    coordinator: ShellyIntegratorCoordinator = (
+    coordinator: ShellyCloudCoordinator = (
         hass.data[DOMAIN][entry.entry_id]
     )
     created_entities: set[str] = set()
@@ -107,7 +107,7 @@ class ShellyGasSelfTestButton(ShellyBaseEntity, ButtonEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the button."""
@@ -139,7 +139,7 @@ class ShellyGasMuteButton(ShellyBaseEntity, ButtonEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the button."""
@@ -166,7 +166,7 @@ class ShellyGasUnmuteButton(ShellyBaseEntity, ButtonEntity):
 
     def __init__(
         self,
-        coordinator: ShellyIntegratorCoordinator,
+        coordinator: ShellyCloudCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the button."""

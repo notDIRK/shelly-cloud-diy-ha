@@ -8,32 +8,40 @@ from homeassistant.const import Platform
 
 DOMAIN = "shelly_cloud_diy"
 
-# Integrator Tag (not secret - identifies this integration)
-INTEGRATOR_TAG = "ITG_OSS"
+# ── Config entry keys ──────────────────────────────────────────────
 
-# API Endpoints
-API_GET_TOKEN = "https://api.shelly.cloud/integrator/get_access_token"
-SHELLY_CONSENT_URL = "https://my.shelly.cloud/integrator.html"
-WSS_PORT = 6113
-WSS_PATH = "/shelly/wss/hk_sock"
-
-# Config keys (TOKEN entered by user, stored securely by HA)
-CONF_INTEGRATOR_TOKEN = "integrator_token"
+CONF_AUTH_KEY = "auth_key"
+CONF_SERVER_URI = "server_uri"
+CONF_POLL_INTERVAL = "poll_interval"
 CONF_LOCAL_GATEWAY_URL = "local_gateway_url"
-CONF_WEBHOOK_ID = "webhook_id"
 
-# Token refresh interval (23 hours to be safe, token valid 24h)
-TOKEN_REFRESH_INTERVAL = 23 * 60 * 60
+# ── Polling configuration ──────────────────────────────────────────
 
-# WebSocket reconnect – exponential backoff bounds (seconds)
-WS_RECONNECT_MIN = 1
-WS_RECONNECT_MAX = 60
+# Shelly documents a 1 req/s rate limit per account. Default 5 s leaves
+# four commands per second of headroom. The floor of 3 s keeps polling
+# comfortably under the limit even with occasional retries; the ceiling
+# of 60 s is for battery-sensitive setups.
+POLL_INTERVAL_MIN = 3
+POLL_INTERVAL_MAX = 60
+POLL_INTERVAL_DEFAULT = 5
 
-# Historical data sync interval (daily = 24 hours)
-HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60
+# ── Historical sync (unchanged from pre-pivot) ─────────────────────
 
-# Platforms
-PLATFORMS = [
+HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily
+
+# ── Dispatcher signals ─────────────────────────────────────────────
+
+SIGNAL_NEW_DEVICE = f"{DOMAIN}_new_device"
+
+# ── Persistent storage keys ────────────────────────────────────────
+
+# Map of Shelly device_id → hostname, kept in entry.data so platforms can
+# resolve devices before the first successful poll (e.g. on HA restart).
+CONF_KNOWN_DEVICES = "known_devices"
+
+# ── Platforms we publish ───────────────────────────────────────────
+
+PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.COVER,
@@ -42,15 +50,30 @@ PLATFORMS = [
     Platform.SWITCH,
 ]
 
-# Webhook
-# Legacy default — only used to migrate entries that predate the per-install
-# randomised webhook_id stored under CONF_WEBHOOK_ID in entry.data.
-WEBHOOK_ID_LEGACY = "shelly_cloud_diy_callback"
+# ── Device-generation detection ────────────────────────────────────
 
-# Gen2/Gen3 detection pattern (shared across all platforms)
-_GEN2_PATTERN = re.compile(r"switch:\d+|light:\d+|cover:\d+|input:\d+")
+# Gen2/Gen3 RPC devices expose keys like ``switch:0``, ``light:0``, etc.
+# Gen1 devices use legacy keys like ``relays``, ``meters``. BLE devices
+# reported through Shelly BLU Gateway use keys like ``humidity:0``,
+# ``temperature:0`` and the ``_dev_info.gen`` field is ``"GBLE"``.
+_GEN2_PATTERN = re.compile(r"(switch|light|cover|input|cloud|sys):\d+")
 
 
 def is_gen2_status(status: dict[str, Any]) -> bool:
-    """Check if a device status dict is from a Gen2/Gen3 (RPC) device."""
+    """Return True if the status dict looks like a Gen2/Gen3 RPC device."""
+    if not status:
+        return False
     return any(_GEN2_PATTERN.match(key) for key in status)
+
+
+def device_gen(status: dict[str, Any]) -> str:
+    """Return ``"G1"`` / ``"G2"`` / ``"GBLE"`` based on ``_dev_info.gen``.
+
+    Falls back to structural inference if ``_dev_info`` is missing.
+    """
+    dev_info = status.get("_dev_info") if isinstance(status, dict) else None
+    if isinstance(dev_info, dict):
+        gen = dev_info.get("gen")
+        if isinstance(gen, str) and gen:
+            return gen
+    return "G2" if is_gen2_status(status) else "G1"
