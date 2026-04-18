@@ -224,107 +224,56 @@ class ShellyCloudControl:
         body = await self._post("/device/status", {"id": device_id})
         return body.get("data", {})
 
-    # Shelly's v2 API rejects requests with more than 10 ids and returns
-    # HTTP 200 ``{"isok":false,"error":"VALIDATION_ERRORS",…}``. Undocumented
-    # but verified live. We batch accordingly.
-    _V2_IDS_PER_BATCH = 10
+    async def get_device_names(self, ids: list[str] | None = None) -> dict[str, str]:
+        """Look up the Shelly-App cloud-alias for every device on the account.
 
-    # Pause between consecutive v2 requests so the 1 req/s account budget
-    # holds across batches.
-    _V2_BATCH_GAP_S = 1.2
+        POSTs to the v1 ``/interface/device/list`` endpoint (form-encoded,
+        same 1 req/s budget as the other v1 endpoints). The response shape
+        is::
 
-    async def get_device_names(self, ids: list[str]) -> dict[str, str]:
-        """Look up user-set device names via the v2 JSON API.
+            {"isok": true, "data": {"devices": {
+                "<device_id>": {"id": "<device_id>", "name": "<alias>", …},
+                …
+            }}}
 
-        POSTs ``/v2/devices/api/get`` with ``select=["settings"]`` and
-        ``pick={"settings": ["sys"]}`` so the response only contains
-        ``settings.sys`` for Gen2/Gen3 (the path `settings.sys.device.name`
-        exposes the user-set name). The auth_key is sent in the JSON body,
-        NOT as a Bearer header.
+        This returns the **cloud-side alias** that appears in the Shelly
+        mobile app — which is what users actually set when they rename a
+        device — rather than the device-local `settings.sys.device.name`
+        that only gets written when the rename is pushed down to the
+        firmware. Those two names are often different; the cloud alias is
+        the correct one to show in Home Assistant.
 
-        Gen2/Gen3 Shelly devices get a name; BLE gateway-bridged entries
-        (id prefix ``XB``) are skipped — they have no user-set Shelly-App
-        name and would only waste API budget.
+        One request covers every device on the account — no batching, no
+        per-id payloads, no BLE filtering (BLE gateway-bridged devices
+        are included in the response with their own aliases).
 
-        The v2 API rejects >10 ids per request with a VALIDATION_ERRORS
-        payload, so large fleets are split into batches of 10 with a
-        1.2 s gap between calls to respect the shared 1 req/s budget.
+        Args:
+            ids: Optional id filter. If provided, the response is trimmed
+                to those ids. Defaults to "every device on the account".
 
-        Offline devices return no settings payload and are silently
-        omitted — their name stays unresolved until they come back online.
+        Returns:
+            ``{device_id: alias}`` for devices where a non-empty alias was
+            found. Devices with no alias (never renamed in the app) are
+            omitted silently.
         """
-        if not ids:
+        body = await self._post("/interface/device/list")
+        data = body.get("data")
+        if not isinstance(data, dict):
+            return {}
+        devices_block = data.get("devices")
+        if not isinstance(devices_block, dict):
             return {}
 
-        # BLE-gateway-bridged devices (Shelly BLU family, virtual XB-prefix
-        # ids) don't have a Shelly-App name under settings.sys.device.name;
-        # skip them so we don't waste batches.
-        gen2_ids = [d for d in ids if isinstance(d, str) and not d.startswith("XB")]
-        if not gen2_ids:
-            return {}
-
+        wanted: set[str] | None = set(ids) if ids else None
         names: dict[str, str] = {}
-        for batch_start in range(0, len(gen2_ids), self._V2_IDS_PER_BATCH):
-            batch = gen2_ids[batch_start : batch_start + self._V2_IDS_PER_BATCH]
-            if batch_start > 0:
-                await asyncio.sleep(self._V2_BATCH_GAP_S)
-            batch_names = await self._get_device_names_single(batch)
-            names.update(batch_names)
-        return names
-
-    async def _get_device_names_single(self, ids: list[str]) -> dict[str, str]:
-        """Single v2 request for up to 10 device ids. Parses + extracts names."""
-        payload = {
-            "auth_key": self._auth_key,
-            "ids": list(ids),
-            "select": ["settings"],
-            "pick": {"settings": ["sys"]},
-        }
-        data = await self._post_json("/v2/devices/api/get", payload)
-
-        # v2 may return either a raw list of device objects (the documented
-        # success shape) or a dict envelope {"isok":…,"data":…,"error":…}
-        # when validation fails or the API is rate-limited via the body
-        # rather than HTTP status. Recognise the envelope and surface it
-        # as a warning so future regressions don't silently drop names.
-        if isinstance(data, dict):
-            if data.get("isok") is False or "error" in data:
-                _LOGGER.warning(
-                    "v2 name lookup returned structured error: %s",
-                    data.get("error") or data.get("errors") or data,
-                )
-                return {}
-            # Older accounts have been observed to wrap the list in a dict.
-            maybe_list = data.get("data") or data.get("devices")
-            records = maybe_list if isinstance(maybe_list, list) else []
-        elif isinstance(data, list):
-            records = data
-        else:
-            records = []
-
-        names: dict[str, str] = {}
-        for record in records:
-            if not isinstance(record, dict):
+        for did, record in devices_block.items():
+            if not isinstance(did, str) or not isinstance(record, dict):
                 continue
-            did = record.get("id")
-            if not isinstance(did, str):
+            if wanted is not None and did not in wanted:
                 continue
-            settings = record.get("settings")
-            if not isinstance(settings, dict):
-                continue
-            # Gen2/Gen3 path: settings.sys.device.name
-            name: Any = None
-            sys_block = settings.get("sys")
-            if isinstance(sys_block, dict):
-                device_block = sys_block.get("device")
-                if isinstance(device_block, dict):
-                    name = device_block.get("name")
-            # Gen1 fallback: settings.name (untested, documented in v2 spec)
-            if not name:
-                name = settings.get("name")
+            name = record.get("name")
             if isinstance(name, str) and name.strip():
                 names[did] = name.strip()
-
         return names
 
     # ── Command endpoints ──────────────────────────────────────────────
