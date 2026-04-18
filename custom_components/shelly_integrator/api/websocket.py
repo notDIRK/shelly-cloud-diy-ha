@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from typing import TYPE_CHECKING, Any, Callable
 
 import aiohttp
@@ -294,10 +295,14 @@ class ShellyWebSocket:
                 _LOGGER.error("WebSocket error for %s: %s", host, err)
 
             if self._running:
+                # Add up-to-10% jitter so many HA instances do not all
+                # reconnect in lock-step after a Shelly Cloud outage.
+                jitter = random.uniform(0, backoff * 0.1)
+                sleep_for = backoff + jitter
                 _LOGGER.info(
-                    "Reconnecting to %s in %ds", host, backoff
+                    "Reconnecting to %s in %.1fs", host, sleep_for
                 )
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(sleep_for)
                 backoff = min(backoff * 2, WS_RECONNECT_MAX)
 
     async def _connect_and_listen(self, host: str) -> None:
