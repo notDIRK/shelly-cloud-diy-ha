@@ -7,15 +7,18 @@ Thin async wrapper around the documented Cloud Control API endpoints:
 - ``POST /device/relay/control``   — turn relay channels on/off/toggle
 - ``POST /device/light/control``   — turn / dim light channels
 - ``POST /device/relay/roller/control`` — cover / roller open/close/stop/to_pos
+- ``POST /v2/devices/api/get``     — v2 JSON endpoint for device metadata
+  (settings, names); auth_key goes in the JSON body, NOT as Bearer header.
 
-All calls authenticate via the form parameter ``auth_key`` (obtained from the
-Shelly App under *User settings → Authorization cloud key*). The per-account
-server URI is passed into the client at construction time (also shown on the
-same screen in the app).
+All v1 calls authenticate via the form parameter ``auth_key`` (obtained from
+the Shelly App under *User settings → Authorization cloud key*). The v2 call
+takes the same ``auth_key`` but as a JSON body field. The per-account server
+URI is passed into the client at construction time (also shown on the same
+screen in the app).
 
 Shelly documents a rate limit of **1 request per second per account**; callers
-are responsible for respecting that budget. See ``docs/ROADMAP.md`` for the
-integration's overall rate-limit strategy.
+are responsible for respecting that budget. v1 and v2 share that budget. See
+``docs/ROADMAP.md`` for the integration's overall rate-limit strategy.
 """
 from __future__ import annotations
 
@@ -149,6 +152,46 @@ class ShellyCloudControl:
 
         return data
 
+    async def _post_json(self, path: str, payload: dict[str, Any]) -> Any:
+        """POST a JSON request and return the parsed JSON body.
+
+        Used by v2 endpoints, which take a JSON body (including ``auth_key``)
+        and return a JSON array or object directly — not the v1
+        ``{"isok": …, "data": …}`` envelope.
+
+        Retries once on HTTP 429 after a 1.2 s sleep (same pattern as
+        :meth:`_post`); any further 429 surfaces as
+        :class:`ShellyCloudRateLimitError`.
+        """
+        url = f"{self._base_url}{path}"
+
+        data: Any = None
+        for attempt in range(2):
+            try:
+                async with self._session.post(
+                    url, json=payload, timeout=self._timeout
+                ) as response:
+                    if response.status in (401, 403):
+                        raise ShellyCloudAuthError(
+                            f"Shelly Cloud rejected auth_key ({response.status})"
+                        )
+                    if response.status == 429:
+                        if attempt == 0:
+                            await asyncio.sleep(1.2)
+                            continue
+                        raise ShellyCloudRateLimitError(
+                            "Rate limit exceeded (1 req/s)"
+                        )
+                    response.raise_for_status()
+                    data = await response.json(content_type=None)
+                    break
+            except asyncio.TimeoutError as err:
+                raise ShellyCloudTransportError(f"Timeout calling {path}") from err
+            except aiohttp.ClientError as err:
+                raise ShellyCloudTransportError(f"HTTP error calling {path}: {err}") from err
+
+        return data
+
     # ── Status endpoints ────────────────────────────────────────────────
 
     async def get_all_status(self) -> dict[str, Any]:
@@ -180,6 +223,69 @@ class ShellyCloudControl:
         """
         body = await self._post("/device/status", {"id": device_id})
         return body.get("data", {})
+
+    async def get_device_names(self, ids: list[str]) -> dict[str, str]:
+        """Look up user-set device names via the v2 JSON API.
+
+        POSTs ``/v2/devices/api/get`` with ``select=["settings"]`` and a
+        narrow ``pick`` so the response only contains ``settings.sys`` for
+        Gen2/Gen3 or ``settings.name`` for Gen1. The auth_key is sent in
+        the JSON body, NOT as a Bearer header.
+
+        Only returns entries for which a non-empty name was found. Offline
+        devices return no settings payload and are silently omitted —
+        their name stays unresolved until they come back online.
+
+        Shares the 1 req/s rate-limit budget with the v1 polling endpoints;
+        callers must space this behind any v1 call by at least 1.2 s.
+        """
+        if not ids:
+            return {}
+
+        payload = {
+            "auth_key": self._auth_key,
+            "ids": list(ids),
+            "select": ["settings"],
+            "pick": {"settings": ["sys", "name"]},
+        }
+        data = await self._post_json("/v2/devices/api/get", payload)
+
+        # The v2 endpoint returns a JSON array of device objects directly.
+        # Be defensive — older / partial accounts have been observed to
+        # wrap the list in a dict, so we handle both shapes.
+        records: list[Any]
+        if isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            maybe_list = data.get("data") or data.get("devices")
+            records = maybe_list if isinstance(maybe_list, list) else []
+        else:
+            records = []
+
+        names: dict[str, str] = {}
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            did = record.get("id")
+            if not isinstance(did, str):
+                continue
+            settings = record.get("settings")
+            if not isinstance(settings, dict):
+                continue
+            # Gen2/Gen3 path: settings.sys.device.name
+            name: Any = None
+            sys_block = settings.get("sys")
+            if isinstance(sys_block, dict):
+                device_block = sys_block.get("device")
+                if isinstance(device_block, dict):
+                    name = device_block.get("name")
+            # Gen1 fallback: settings.name
+            if not name:
+                name = settings.get("name")
+            if isinstance(name, str) and name.strip():
+                names[did] = name.strip()
+
+        return names
 
     # ── Command endpoints ──────────────────────────────────────────────
 
