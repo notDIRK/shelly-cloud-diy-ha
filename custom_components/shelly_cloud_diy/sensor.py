@@ -11,12 +11,17 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, is_gen2_status
+from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, EntityCategory
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+
+from .const import DOMAIN, device_gen, is_gen2_status
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 from .entities.descriptions import (
+    BLE_SENSORS,
     BLOCK_SENSORS,
     RPC_SENSORS,
+    BleSensorDescription,
     BlockSensorDescription,
     RpcSensorDescription,
 )
@@ -42,7 +47,12 @@ async def async_setup_entry(
         if not status:
             return entities
 
-        if is_gen2_status(status):
+        gen = device_gen(status)
+        if gen == "GBLE":
+            entities.extend(_create_ble_sensors(
+                device_id, status, created_sensors, coordinator
+            ))
+        elif is_gen2_status(status):
             entities.extend(_create_rpc_sensors(
                 device_id, status, created_sensors, coordinator
             ))
@@ -276,6 +286,78 @@ class BlockSensor(ShellyBaseEntity, SensorEntity):
         return value
 
 
+def _create_ble_sensors(
+    device_id: str,
+    status: dict[str, Any],
+    created: set[str],
+    coordinator: ShellyCloudCoordinator,
+) -> list[SensorEntity]:
+    """Create sensors for BLE / Shelly-BLU-Gateway-bridged devices.
+
+    These devices report each reading under a ``<type>:<channel>`` key,
+    e.g. ``humidity:0``, ``temperature:0``, ``speed:0`` (wind, channel 0),
+    ``speed:1`` (gust, channel 1). We iterate every such key and look up
+    the BLE_SENSORS description table. Unknown sensor types are skipped.
+    ``devicepower:0`` is special-cased into a battery percentage sensor.
+    """
+    entities: list[SensorEntity] = []
+
+    for key, payload in status.items():
+        if not isinstance(payload, dict):
+            continue
+        if ":" not in key:
+            continue
+        sensor_type, _, channel_s = key.partition(":")
+        if not channel_s.isdigit():
+            continue
+        channel = int(channel_s)
+
+        desc = BLE_SENSORS.get(sensor_type)
+        if desc is None:
+            continue
+        if desc.value_field not in payload:
+            continue
+
+        uid = f"{device_id}_ble_{sensor_type}_{channel}"
+        if uid in created:
+            continue
+        created.add(uid)
+        entities.append(
+            BleSensor(
+                coordinator=coordinator,
+                device_id=device_id,
+                description=desc,
+                sensor_type=sensor_type,
+                channel=channel,
+            )
+        )
+
+    # devicepower:0 → battery percentage / voltage (special nested shape)
+    dp = status.get("devicepower:0")
+    if isinstance(dp, dict) and isinstance(dp.get("battery"), dict):
+        battery = dp["battery"]
+        if "percent" in battery:
+            uid = f"{device_id}_ble_battery_percent"
+            if uid not in created:
+                created.add(uid)
+                entities.append(
+                    BleBatteryPercentSensor(
+                        coordinator=coordinator, device_id=device_id
+                    )
+                )
+        if "V" in battery:
+            uid = f"{device_id}_ble_battery_voltage"
+            if uid not in created:
+                created.add(uid)
+                entities.append(
+                    BleBatteryVoltageSensor(
+                        coordinator=coordinator, device_id=device_id
+                    )
+                )
+
+    return entities
+
+
 class RpcSensor(ShellyBaseEntity, SensorEntity):
     """Gen2/Gen3 RPC sensor."""
 
@@ -324,3 +406,112 @@ class RpcSensor(ShellyBaseEntity, SensorEntity):
             value = self._description.value_fn(value)
 
         return value
+
+
+class BleSensor(ShellyBaseEntity, SensorEntity):
+    """BLE / Shelly-BLU-Gateway-bridged sensor.
+
+    Reads a value from a ``<sensor_type>:<channel>`` status key using the
+    metadata in :class:`BleSensorDescription` to shape the HA entity. One
+    description applies to every channel of the same sensor type, so
+    ``speed:0`` (wind) and ``speed:1`` (gust) share the "Wind Speed"
+    description but each becomes its own entity with a unique channel.
+    """
+
+    def __init__(
+        self,
+        *,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        description: BleSensorDescription,
+        sensor_type: str,
+        channel: int,
+    ) -> None:
+        super().__init__(coordinator, device_id, channel)
+        self._description = description
+        self._sensor_type = sensor_type
+        self._status_key = f"{sensor_type}:{channel}"
+
+        self._attr_unique_id = f"{device_id}_ble_{sensor_type}_{channel}"
+        base_name = description.name
+        self._attr_name = base_name if channel == 0 else f"{base_name} {channel + 1}"
+
+        if description.device_class:
+            self._attr_device_class = description.device_class
+        if description.state_class:
+            self._attr_state_class = description.state_class
+        if description.native_unit_of_measurement:
+            self._attr_native_unit_of_measurement = description.native_unit_of_measurement
+        if description.entity_category:
+            self._attr_entity_category = description.entity_category
+        if description.icon:
+            self._attr_icon = description.icon
+        if description.suggested_display_precision is not None:
+            self._attr_suggested_display_precision = description.suggested_display_precision
+
+    @property
+    def native_value(self) -> float | int | str | None:
+        """Return the numeric reading for this BLE sensor channel."""
+        payload = self.device_status.get(self._status_key)
+        if not isinstance(payload, dict):
+            return None
+        return payload.get(self._description.value_field)
+
+
+class BleBatteryPercentSensor(ShellyBaseEntity, SensorEntity):
+    """Battery percentage reading from a BLE device's ``devicepower:0``."""
+
+    _attr_name = "Battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        *,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, 0)
+        self._attr_unique_id = f"{device_id}_ble_battery_percent"
+
+    @property
+    def native_value(self) -> float | int | None:
+        dp = self.device_status.get("devicepower:0")
+        if not isinstance(dp, dict):
+            return None
+        battery = dp.get("battery")
+        if not isinstance(battery, dict):
+            return None
+        return battery.get("percent")
+
+
+class BleBatteryVoltageSensor(ShellyBaseEntity, SensorEntity):
+    """Battery voltage reading from a BLE device's ``devicepower:0``."""
+
+    _attr_name = "Battery Voltage"
+    _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        *,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, 0)
+        self._attr_unique_id = f"{device_id}_ble_battery_voltage"
+
+    @property
+    def native_value(self) -> float | None:
+        dp = self.device_status.get("devicepower:0")
+        if not isinstance(dp, dict):
+            return None
+        battery = dp.get("battery")
+        if not isinstance(battery, dict):
+            return None
+        return battery.get("V")

@@ -522,3 +522,132 @@ RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
 }
+
+
+# ============================================================================
+# BLE / Gateway-bridged sensors
+# ============================================================================
+# Devices with ``_dev_info.gen == "GBLE"`` are reported to the Shelly Cloud
+# via a Shelly BLU Gateway. Examples: Shelly BLU H&T (SBHT-*), SBWS-90CM
+# weather station (bridged ECOWITT WS90), Shelly BLU Button, Shelly BLU
+# Motion. The /device/all_status response gives each sensor its own
+# top-level key shaped ``<type>:<channel>`` with a small payload that
+# carries a single reading.
+#
+# The mapping below is keyed by the sensor type (the part before the
+# colon) and yields:
+#   - ``value_field``: which dict field holds the numeric reading
+#   - the usual HA metadata (name, unit, device_class, state_class)
+# Keep this list lean — only add entries we have actually seen in the
+# wild so we do not invent entities that will always be ``None``.
+
+
+@dataclass(frozen=True, kw_only=True)
+class BleSensorDescription:
+    """Describe a BLE / gateway-bridged sensor key (``<type>:<channel>``)."""
+
+    name: str
+    value_field: str  # Which sub-key of the payload carries the reading
+    native_unit_of_measurement: str | None = None
+    device_class: SensorDeviceClass | None = None
+    state_class: SensorStateClass | None = None
+    entity_category: EntityCategory | None = None
+    icon: str | None = None
+    suggested_display_precision: int | None = None
+
+
+# Sensor types that map cleanly to a single HA sensor entity.
+BLE_SENSORS: Final[dict[str, BleSensorDescription]] = {
+    "temperature": BleSensorDescription(
+        name="Temperature",
+        value_field="tC",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "humidity": BleSensorDescription(
+        name="Humidity",
+        value_field="rh",
+        native_unit_of_measurement=PERCENTAGE,
+        device_class=SensorDeviceClass.HUMIDITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+    ),
+    "pressure": BleSensorDescription(
+        name="Pressure",
+        value_field="value",
+        native_unit_of_measurement="hPa",
+        device_class=SensorDeviceClass.ATMOSPHERIC_PRESSURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "dewpoint": BleSensorDescription(
+        name="Dew Point",
+        value_field="value",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "UV": BleSensorDescription(
+        name="UV Index",
+        value_field="value",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:sun-wireless-outline",
+        suggested_display_precision=1,
+    ),
+    "illuminance": BleSensorDescription(
+        name="Illuminance",
+        value_field="lux",
+        native_unit_of_measurement="lx",
+        device_class=SensorDeviceClass.ILLUMINANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    "precipitation": BleSensorDescription(
+        name="Precipitation",
+        value_field="value",
+        native_unit_of_measurement="mm",
+        device_class=SensorDeviceClass.PRECIPITATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "speed": BleSensorDescription(
+        name="Wind Speed",
+        value_field="value",
+        native_unit_of_measurement="m/s",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "direction": BleSensorDescription(
+        name="Wind Direction",
+        value_field="value",
+        native_unit_of_measurement="°",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:compass-outline",
+    ),
+}
+
+
+# BLE devicepower:0 carries a nested battery object — treated specially in
+# sensor.py because its shape ``{"battery": {"V": 5.3, "percent": 100}}``
+# does not match the generic ``value_field`` pattern above.
+
+
+@dataclass(frozen=True, kw_only=True)
+class BleBinarySensorDescription:
+    """Describe a BLE / gateway-bridged binary sensor key."""
+
+    name: str
+    value_field: str
+    device_class: BinarySensorDeviceClass | None = None
+
+
+BLE_BINARY_SENSORS: Final[dict[str, BleBinarySensorDescription]] = {
+    "moisture_alarm": BleBinarySensorDescription(
+        name="Moisture Alarm",
+        value_field="value",
+        device_class=BinarySensorDeviceClass.MOISTURE,
+    ),
+}
