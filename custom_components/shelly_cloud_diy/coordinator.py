@@ -117,11 +117,26 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         for device_id, status in devices_status.items():
             if not isinstance(status, dict):
                 continue
-            dev_info = status.get("_dev_info", {}) if isinstance(status, dict) else {}
+            # Shelly Cloud puts metadata under ``_dev_info`` only for BLE
+            # gateway-bridged devices (``gen == "GBLE"``); for Gen2/Gen3
+            # Shelly devices the fields live at the top level of the status
+            # (``code``, ``id``, ``cloud.connected``). Probe both.
+            dev_info = status.get("_dev_info") if isinstance(status, dict) else None
+            if not isinstance(dev_info, dict):
+                dev_info = {}
+
+            code = dev_info.get("code") or status.get("code") or ""
+
+            if "online" in dev_info:
+                online = bool(dev_info.get("online"))
+            else:
+                cloud = status.get("cloud")
+                online = bool(cloud.get("connected")) if isinstance(cloud, dict) else False
+
             new_devices[device_id] = {
                 "status": status,
-                "online": bool(dev_info.get("online", False)),
-                "device_code": dev_info.get("code") or "",
+                "online": online,
+                "device_code": code,
                 # /device/all_status does not return the user-set name;
                 # stays None and the base-entity falls back to the model name.
                 "name": None,
