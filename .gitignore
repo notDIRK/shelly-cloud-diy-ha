@@ -78,3 +78,6 @@ Thumbs.db
 # Project specific
 *.log
 secrets.yaml
+
+# GSD planning scratch space (kept local; consolidated output lives in docs/CODEBASE_MAP.md)
+.planning/
