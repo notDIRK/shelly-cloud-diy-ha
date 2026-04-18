@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -261,6 +262,39 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             if entry is not None:
                 entry["name"] = name
         _LOGGER.info("Resolved %d device name(s) via v2 API", len(names))
+
+        # Push the resolved names into the HA device registry so existing
+        # DeviceEntry rows (created at integration setup with a fallback
+        # "Shelly <model> (<id>)" label) get renamed on the spot. HA only
+        # reads ``DeviceInfo.name`` on the first registration; later changes
+        # via ``device_info`` are ignored, so without this explicit update
+        # the v2 names would never surface in the UI.
+        #
+        # ``async_update_device(name=…)`` only writes the technical ``name``
+        # field, never ``name_by_user`` — so any user who renamed a device
+        # in the HA UI keeps their override intact.
+        dev_reg = dr.async_get(self.hass)
+        updated_in_registry = 0
+        for did, resolved in names.items():
+            formatted = f"{resolved} ({did})"
+            device_entry = dev_reg.async_get_device(
+                identifiers={(DOMAIN, did)}
+            )
+            if device_entry is None:
+                # Entity creation hasn't happened yet (device not enabled
+                # in options, or first poll still propagating). Name will
+                # be picked up naturally when the entity registers.
+                continue
+            if device_entry.name == formatted:
+                continue
+            dev_reg.async_update_device(device_entry.id, name=formatted)
+            updated_in_registry += 1
+        if updated_in_registry:
+            _LOGGER.info(
+                "Updated %d device name(s) in HA device registry",
+                updated_in_registry,
+            )
+
         # Push updated device_info to platforms without waiting for next poll.
         self.async_update_listeners()
 
