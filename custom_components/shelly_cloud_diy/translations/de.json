@@ -19,12 +19,21 @@
       },
       "devices": {
         "title": "Geräte auswählen",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Alle Geräte sind vorausgewählt — hake aus, was du nicht in Home Assistant haben willst. Bleiben alle angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert. Sobald du ein Gerät abwählst, wird die Auswahl explizit und neue Geräte bleiben aus bis du sie hier hinzufügst. Nützlich, wenn du parallel die eingebaute Shelly-LAN-Integration nutzt und Doppel-Entities vermeiden willst.",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Wähle, wie Home Assistant bestückt wird:",
+        "menu_options": {
+          "devices_all": "Alle Geräte aktivieren (empfohlen — neue Geräte werden automatisch hinzugefügt)",
+          "devices_none": "Alle Geräte ausschließen (Polling läuft weiter, aber keine Entities werden angelegt)",
+          "devices_select": "Einzeln auswählen (öffnet eine vorausgewählte Liste — dort kannst du einzelne Geräte abhaken oder anhaken)"
+        }
+      },
+      "devices_select": {
+        "title": "Geräte einzeln auswählen",
+        "description": "{total} Gerät(e) vorausgewählt — hake aus, was du ausschließen willst. Offline-Geräte sind mit ⚠ markiert.",
         "data": {
           "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
         },
         "data_description": {
-          "enabled_devices": "Alle Geräte sind vorausgewählt. Hake aus, was du ausschließen möchtest. Offline-Geräte sind mit ⚠ markiert."
+          "enabled_devices": "Bleiben alle angehakt, werden neue Geräte automatisch hinzugefügt. Sobald du ein Gerät abwählst, wird die Auswahl explizit."
         }
       },
       "reauth_confirm": {
@@ -63,13 +72,23 @@
         }
       },
       "devices": {
-        "title": "Geräte auswählen",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Bleiben alle angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert; sobald du ein Gerät abwählst, wird die Auswahl explizit.",
+        "title": "Geräte-Auswahl ändern",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Wähle, wie die Auswahl aktualisiert werden soll:",
+        "menu_options": {
+          "devices_keep": "Aktuelle Auswahl beibehalten (Abbrechen — nichts ändern)",
+          "devices_all": "Alle Geräte aktivieren (neue Geräte automatisch dazu)",
+          "devices_none": "Alle Geräte ausschließen",
+          "devices_select": "Einzeln bearbeiten (öffnet eine vorausgewählte Liste)"
+        }
+      },
+      "devices_select": {
+        "title": "Geräte-Auswahl bearbeiten",
+        "description": "{total} Gerät(e). Hake aus, was du ausschließen möchtest.",
         "data": {
           "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
         },
         "data_description": {
-          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt. Offline-Geräte sind mit ⚠ markiert."
+          "enabled_devices": "Bleiben alle angehakt, werden neue Geräte automatisch hinzugefügt. Sobald du ein Gerät abwählst, wird die Auswahl explizit."
         }
       }
     },

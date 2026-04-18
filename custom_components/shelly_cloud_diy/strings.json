@@ -19,12 +19,21 @@
       },
       "devices": {
         "title": "Choose devices to expose",
-        "description": "The Shelly Cloud account exposes {total} device(s). Every device is pre-ticked — untick any you do not want in Home Assistant. If you leave all ticked, new devices you add to the Shelly account later will also be auto-enabled; if you untick even one, the selection becomes explicit and future additions stay off until you tick them here. Useful if you also run the built-in Shelly (LAN) integration and want to avoid duplicates.",
+        "description": "The Shelly Cloud account exposes {total} device(s). Pick how to populate Home Assistant:",
+        "menu_options": {
+          "devices_all": "Enable every device (recommended — future devices auto-enabled)",
+          "devices_none": "Disable every device (polling still runs, no entities)",
+          "devices_select": "Choose individually (pre-ticked list — untick to exclude)"
+        }
+      },
+      "devices_select": {
+        "title": "Choose devices individually",
+        "description": "{total} device(s) pre-ticked — untick any you want to exclude. Offline devices are marked with ⚠.",
         "data": {
           "enabled_devices": "Devices to expose as entities"
         },
         "data_description": {
-          "enabled_devices": "Every device is pre-ticked. Untick any you want to exclude. Offline devices are marked with ⚠."
+          "enabled_devices": "Leaving every device ticked keeps future-device auto-enable on."
         }
       },
       "reauth_confirm": {
@@ -63,13 +72,23 @@
         }
       },
       "devices": {
-        "title": "Choose devices to expose",
-        "description": "The Shelly Cloud account exposes {total} device(s). Leaving all devices ticked keeps future-device auto-enable on; unticking any device switches to an explicit list.",
+        "title": "Change device selection",
+        "description": "The Shelly Cloud account exposes {total} device(s). Pick how to update the selection:",
+        "menu_options": {
+          "devices_keep": "Keep current selection (cancel)",
+          "devices_all": "Enable every device (future devices auto-enabled)",
+          "devices_none": "Disable every device",
+          "devices_select": "Edit individually (pre-ticked list)"
+        }
+      },
+      "devices_select": {
+        "title": "Edit device selection",
+        "description": "{total} device(s). Untick the ones you want to exclude.",
         "data": {
           "enabled_devices": "Devices to expose as entities"
         },
         "data_description": {
-          "enabled_devices": "Only ticked devices produce Home Assistant entities. Offline devices are marked with ⚠."
+          "enabled_devices": "Leaving every device ticked keeps future-device auto-enable on."
         }
       }
     },

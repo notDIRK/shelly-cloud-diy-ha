@@ -239,16 +239,40 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Second step — pick which devices get materialised as entities.
+        """Menu: choose a device-selection mode before the picker.
 
-        UX: the picker shows every device pre-ticked so the common case
-        ("I want all of them") is a single click through. To exclude a
-        device, untick it. If you leave every box ticked, new devices
-        added to the Shelly account later get auto-enabled too
-        (``create_all_initially=True`` is inferred). If you untick any
-        device, the set becomes explicit and future devices stay off
-        until you add them via the options flow.
+        Three options:
+        - ``all``: enable every current device AND auto-enable future
+          devices. One click. No picker shown.
+        - ``none``: disable every device (polling still runs; HA just
+          doesn't materialise entities). One click. No picker shown.
+        - ``select``: open the multi-select list pre-ticked with every
+          device, so the user can untick individual ones.
         """
+        return self.async_show_menu(
+            step_id="devices",
+            menu_options=["devices_all", "devices_none", "devices_select"],
+        )
+
+    async def async_step_devices_all(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Save with every device enabled + future-device auto-enable on."""
+        return self._finalize_devices(
+            enabled=list(self._pending_devices.keys()),
+            create_all=True,
+        )
+
+    async def async_step_devices_none(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Save with no device enabled — picker-add them later via options."""
+        return self._finalize_devices(enabled=[], create_all=False)
+
+    async def async_step_devices_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Multi-select list with every device pre-ticked; untick to exclude."""
         options = _build_device_options(
             self._pending_devices, self._pending_names
         )
@@ -259,20 +283,8 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not isinstance(selected, list):
                 selected = [selected]
             selected = [d for d in selected if isinstance(d, str)]
-
-            # "All ticked" → auto-enable future devices too. Any deselection
-            # flips the semantics to "explicit list".
             create_all = set(selected) == set(all_ids) and len(all_ids) > 0
-
-            entry_options = dict(self._pending_options)
-            entry_options[CONF_CREATE_ALL_INITIALLY] = create_all
-            entry_options[CONF_ENABLED_DEVICES] = selected
-
-            return self.async_create_entry(
-                title="Shelly Cloud DIY",
-                data=self._pending_data,
-                options=entry_options,
-            )
+            return self._finalize_devices(enabled=selected, create_all=create_all)
 
         schema = vol.Schema(
             {
@@ -287,13 +299,25 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             }
         )
-
         return self.async_show_form(
-            step_id="devices",
+            step_id="devices_select",
             data_schema=schema,
             description_placeholders={
                 "total": str(len(self._pending_devices)),
             },
+        )
+
+    def _finalize_devices(
+        self, enabled: list[str], create_all: bool
+    ) -> FlowResult:
+        """Persist the collected auth + device selection as a config entry."""
+        entry_options = dict(self._pending_options)
+        entry_options[CONF_CREATE_ALL_INITIALLY] = create_all
+        entry_options[CONF_ENABLED_DEVICES] = enabled
+        return self.async_create_entry(
+            title="Shelly Cloud DIY",
+            data=self._pending_data,
+            options=entry_options,
         )
 
     async def async_step_reauth(
@@ -424,12 +448,46 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
     async def async_step_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Second step — update the opt-in device selection.
+        """Menu mirroring the config flow's choice of selection mode."""
+        return self.async_show_menu(
+            step_id="devices",
+            menu_options=[
+                "devices_keep",
+                "devices_all",
+                "devices_none",
+                "devices_select",
+            ],
+        )
 
-        Same UX rule as the config flow: leaving every device ticked
-        keeps ``create_all_initially`` true so future devices auto-enable;
-        unticking any device makes the set explicit.
-        """
+    async def async_step_devices_keep(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Keep the existing enabled_devices selection unchanged."""
+        current = self.config_entry.options
+        raw_enabled = current.get(CONF_ENABLED_DEVICES)
+        enabled = raw_enabled if isinstance(raw_enabled, list) else []
+        create_all = bool(current.get(CONF_CREATE_ALL_INITIALLY, False))
+        return self._finalize_devices(enabled=enabled, create_all=create_all)
+
+    async def async_step_devices_all(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Enable every currently-visible device + auto-enable future."""
+        return self._finalize_devices(
+            enabled=list(self._pending_devices.keys()),
+            create_all=True,
+        )
+
+    async def async_step_devices_none(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Disable every device. Entities are removed on reload."""
+        return self._finalize_devices(enabled=[], create_all=False)
+
+    async def async_step_devices_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Multi-select list pre-ticked with the current enabled_devices."""
         options = _build_device_options(
             self._pending_devices, self._pending_names
         )
@@ -440,18 +498,11 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             if not isinstance(selected, list):
                 selected = [selected]
             selected = [d for d in selected if isinstance(d, str)]
-
             create_all = set(selected) == set(all_ids) and len(all_ids) > 0
-
-            entry_options = dict(self._pending_base_options)
-            entry_options[CONF_CREATE_ALL_INITIALLY] = create_all
-            entry_options[CONF_ENABLED_DEVICES] = selected
-            return self._save(entry_options)
+            return self._finalize_devices(enabled=selected, create_all=create_all)
 
         current_opts = self.config_entry.options
         if current_opts.get(CONF_CREATE_ALL_INITIALLY):
-            # Existing install using "all devices" mode — pre-tick every
-            # currently-visible device so the user sees the live fleet.
             default_enabled = all_ids
         else:
             raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
@@ -476,14 +527,22 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 ),
             }
         )
-
         return self.async_show_form(
-            step_id="devices",
+            step_id="devices_select",
             data_schema=schema,
             description_placeholders={
                 "total": str(len(self._pending_devices)),
             },
         )
+
+    def _finalize_devices(
+        self, enabled: list[str], create_all: bool
+    ) -> FlowResult:
+        """Persist poll/gateway + device selection as options."""
+        opts = dict(self._pending_base_options)
+        opts[CONF_CREATE_ALL_INITIALLY] = create_all
+        opts[CONF_ENABLED_DEVICES] = enabled
+        return self._save(opts)
 
     def _save(self, options: dict[str, Any]) -> FlowResult:
         """Persist options and return an empty-title entry so HA saves them."""
