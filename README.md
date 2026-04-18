@@ -1,6 +1,6 @@
 # Shelly Integrator for Home Assistant (notDIRK fork)
 
-![Shelly Integrator](images/icon.webp)
+![Shelly Integrator (notDIRK fork)](images/icon-notdirk-v2.jpeg)
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/notDIRK/shelly-integrator-ha)](https://github.com/notDIRK/shelly-integrator-ha/releases)
