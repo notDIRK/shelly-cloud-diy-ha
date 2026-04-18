@@ -38,6 +38,8 @@ async def async_setup_entry(
     def create_binary_sensors(device_id: str) -> list[BinarySensorEntity]:
         """Create binary sensor entities for a device."""
         entities: list[BinarySensorEntity] = []
+        if not coordinator.is_enabled(device_id):
+            return entities
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
 

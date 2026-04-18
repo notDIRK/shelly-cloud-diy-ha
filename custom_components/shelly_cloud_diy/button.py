@@ -37,6 +37,8 @@ async def async_setup_entry(
     def create_buttons(device_id: str) -> list[ButtonEntity]:
         """Create button entities for a device."""
         entities: list[ButtonEntity] = []
+        if not coordinator.is_enabled(device_id):
+            return entities
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
 

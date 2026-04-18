@@ -28,6 +28,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api.cloud_control import ShellyCloudControl
 from .const import (
     CONF_AUTH_KEY,
+    CONF_CREATE_ALL_INITIALLY,
+    CONF_ENABLED_DEVICES,
     CONF_SERVER_URI,
     DOMAIN,
     PLATFORMS,
@@ -50,6 +52,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not auth_key or not server_uri:
         # Corrupt entry (e.g. hand-edited .storage) — force reauth.
         raise ConfigEntryAuthFailed("Missing auth_key or server_uri")
+
+    _migrate_to_v0_4_0(hass, entry)
 
     session = async_get_clientsession(hass)
     api = ShellyCloudControl(session, server_uri, auth_key)
@@ -103,6 +107,26 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     """Reload when the user changes poll interval / gateway URL."""
     _LOGGER.info("Shelly Cloud DIY: options changed, reloading")
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _migrate_to_v0_4_0(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Preserve v0.3.x behaviour for entries upgraded to v0.4.0.
+
+    Pre-v0.4.0 installs have no device-selection keys in ``entry.options``.
+    To avoid silently losing every entity on upgrade, we force
+    ``create_all_initially=True`` for any entry that carries neither
+    ``CONF_CREATE_ALL_INITIALLY`` nor ``CONF_ENABLED_DEVICES``. The user
+    can later opt into a curated subset via the options flow.
+    """
+    opts = dict(entry.options)
+    if CONF_CREATE_ALL_INITIALLY in opts or CONF_ENABLED_DEVICES in opts:
+        return
+    opts[CONF_CREATE_ALL_INITIALLY] = True
+    hass.config_entries.async_update_entry(entry, options=opts)
+    _LOGGER.info(
+        "Shelly Cloud DIY: migrated config entry to v0.4.0 — "
+        "all devices remain enabled; use options flow to curate."
+    )
 
 
 # ── Service registration ────────────────────────────────────────────────

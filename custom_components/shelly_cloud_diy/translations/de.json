@@ -17,6 +17,18 @@
           "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
         }
       },
+      "devices": {
+        "title": "Geräte auswählen",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Standardmäßig werden nur die unten angehakten Geräte als Home-Assistant-Entities angelegt. So entstehen keine doppelten Entities, falls parallel die eingebaute Shelly-LAN-Integration läuft.",
+        "data": {
+          "create_all_initially": "Entities für alle Geräte anlegen",
+          "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
+        },
+        "data_description": {
+          "create_all_initially": "Anhaken, um für jedes sichtbare Gerät Entities anzulegen (auch für später hinzukommende). Leer lassen, um unten gezielt auszuwählen.",
+          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt. Wird ignoriert, wenn \"Entities für alle Geräte anlegen\" aktiv ist."
+        }
+      },
       "reauth_confirm": {
         "title": "Shelly Cloud DIY erneut anmelden",
         "description": "Die Shelly Cloud hat den gespeicherten Authorization cloud key abgelehnt. Füge einen frischen Key aus der Shelly-App ein (Benutzereinstellungen → Authorization cloud key), um den Zugriff wiederherzustellen.",
@@ -42,7 +54,7 @@
     "step": {
       "init": {
         "title": "Shelly Cloud DIY — Optionen",
-        "description": "Passt an, wie oft die Integration die Shelly Cloud abfragt, sowie optional die lokale Gateway-URL für den Historical-Data-Service.",
+        "description": "Passt an, wie oft die Integration die Shelly Cloud abfragt, sowie optional die lokale Gateway-URL für den Historical-Data-Service. Die Geräteauswahl folgt im nächsten Schritt.",
         "data": {
           "poll_interval": "Abfrageintervall (Sekunden)",
           "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
@@ -50,6 +62,18 @@
         "data_description": {
           "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
           "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
+        }
+      },
+      "devices": {
+        "title": "Geräte auswählen",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). \"Entities für alle Geräte anlegen\" anhaken, um alle zu spiegeln — oder unten gezielt eine Teilmenge wählen.",
+        "data": {
+          "create_all_initially": "Entities für alle Geräte anlegen",
+          "enabled_devices": "Geräte, die als Entities veröffentlicht werden sollen"
+        },
+        "data_description": {
+          "create_all_initially": "Wenn aktiv, wird für jedes sichtbare Gerät eine Entity-Sammlung angelegt — auch für Geräte, die später zum Konto hinzukommen.",
+          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt. Offline-Geräte sind mit ⚠ markiert."
         }
       }
     },

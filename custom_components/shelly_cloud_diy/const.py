@@ -15,6 +15,23 @@ CONF_SERVER_URI = "server_uri"
 CONF_POLL_INTERVAL = "poll_interval"
 CONF_LOCAL_GATEWAY_URL = "local_gateway_url"
 
+# ── Device selection (v0.4.0) ──────────────────────────────────────
+
+# List of Shelly device_ids the user wants materialised as HA entities.
+# Stored in ``entry.options``. Interaction with ``CONF_CREATE_ALL_INITIALLY``
+# below:
+#   - ``CONF_CREATE_ALL_INITIALLY`` = True  → all devices enabled, list ignored.
+#   - ``CONF_CREATE_ALL_INITIALLY`` unset/False AND ``CONF_ENABLED_DEVICES``
+#     present → only listed devices are enabled.
+#   - Neither key present (pre-v0.4.0 entries before migration) → all enabled.
+CONF_ENABLED_DEVICES = "enabled_devices"
+
+# Boolean option: "create entities for every device the account can see".
+# Set to True on upgrade from v0.3.x so existing installs keep all their
+# entities, and whenever the user opts into the "all devices" checkbox in
+# the config / options flow.
+CONF_CREATE_ALL_INITIALLY = "create_all_initially"
+
 # ── Polling configuration ──────────────────────────────────────────
 
 # Shelly documents a 1 req/s rate limit per account. Default 5 s leaves

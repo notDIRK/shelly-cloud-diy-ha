@@ -1,15 +1,25 @@
 """Config flow for Shelly Cloud DIY.
 
-Milestone 1 UX: the user pastes the ``auth_key`` and the per-account
-``server URI`` from the Shelly App (*User settings → Authorization cloud
-key*). We validate both by hitting ``/device/all_status`` once and count
-the devices the account can see.
+User setup is a two-step flow:
 
-Options flow exposes the poll interval (3–60 s) and an optional local
-gateway URL for the historical-data service.
+1. **auth** — paste ``auth_key`` + ``server URI`` from the Shelly App
+   (*User settings → Authorization cloud key*). We validate both by
+   hitting ``/device/all_status`` once and cache the snapshot so the
+   second step does not need to re-poll.
+2. **devices** — offer either "create entities for every device" (one
+   checkbox) or a multi-select picker of the devices the account can see,
+   labelled with their user-set Shelly-App names where available (fetched
+   from the v2 API). This prevents the 275-entity auto-creation that
+   happens for users who also run the HA-Core Shelly LAN integration and
+   only want cloud-only devices materialised.
+
+Options flow exposes the poll interval, the optional local gateway URL
+for the historical-data service, and a mirror of the device-selection
+step so users can change their mind later.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -19,6 +29,12 @@ from homeassistant.config_entries import ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .api.cloud_control import (
     ShellyCloudAuthError,
@@ -28,6 +44,8 @@ from .api.cloud_control import (
 )
 from .const import (
     CONF_AUTH_KEY,
+    CONF_CREATE_ALL_INITIALLY,
+    CONF_ENABLED_DEVICES,
     CONF_LOCAL_GATEWAY_URL,
     CONF_POLL_INTERVAL,
     CONF_SERVER_URI,
@@ -36,9 +54,14 @@ from .const import (
     POLL_INTERVAL_MAX,
     POLL_INTERVAL_MIN,
 )
+from .entities.descriptions import get_model_name
 from .utils import validate_gateway_url
 
 _LOGGER = logging.getLogger(__name__)
+
+# Gap between the /device/all_status call and the v2 name lookup so we
+# stay under the shared 1 req/s rate limit.
+_V2_NAME_LOOKUP_GAP_S = 1.2
 
 # ── Schemas ────────────────────────────────────────────────────────────
 
@@ -54,10 +77,87 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
+def _build_device_options(
+    devices: dict[str, dict[str, Any]],
+    names: dict[str, str],
+) -> list[SelectOptionDict]:
+    """Build multi-select option list: labelled devices, online-first then by name.
+
+    ``devices`` is the raw ``devices_status`` dict from ``/device/all_status``
+    (keys are device_ids, values carry at least ``code``, ``_dev_info``, etc.).
+    ``names`` maps device_id → user-set name (may be a subset of the devices).
+    """
+    options: list[tuple[bool, str, str, str]] = []
+    for did, status in devices.items():
+        if not isinstance(status, dict):
+            continue
+        dev_info = status.get("_dev_info") if isinstance(status, dict) else None
+        if not isinstance(dev_info, dict):
+            dev_info = {}
+        code = dev_info.get("code") or status.get("code") or ""
+        if "online" in dev_info:
+            online = bool(dev_info.get("online"))
+        else:
+            cloud = status.get("cloud")
+            online = bool(cloud.get("connected")) if isinstance(cloud, dict) else False
+
+        name = names.get(did)
+        if name:
+            label_base = name
+        elif code:
+            label_base = get_model_name(code)
+        else:
+            label_base = "Shelly"
+
+        prefix = "" if online else "⚠ "
+        label = f"{prefix}{label_base} ({did})"
+        options.append((online, (name or label_base).lower(), did, label))
+
+    # Online first (True sorts before False when we invert), then by
+    # lower-cased name, then by id.
+    options.sort(key=lambda t: (not t[0], t[1], t[2]))
+    return [SelectOptionDict(value=did, label=label) for _, _, did, label in options]
+
+
+async def _fetch_devices_and_names(
+    api: ShellyCloudControl,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Fetch the device list + user-set names while respecting the rate limit.
+
+    Returns (devices_status, name_map). Failures in the v2 name lookup are
+    non-fatal; device selection still works without names (device_ids
+    remain in the label).
+    """
+    data = await api.get_all_status()
+    devices_status = data.get("devices_status") or {}
+    if not isinstance(devices_status, dict):
+        devices_status = {}
+    if not devices_status:
+        return devices_status, {}
+
+    await asyncio.sleep(_V2_NAME_LOOKUP_GAP_S)
+    try:
+        names = await api.get_device_names(list(devices_status.keys()))
+    except ShellyCloudError as err:
+        _LOGGER.debug("Config-flow v2 name lookup failed: %s", err)
+        names = {}
+    return devices_status, names
+
+
 class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """User-initiated setup flow."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialise the flow's per-attempt state."""
+        # Populated by ``async_step_user`` after successful auth and
+        # consumed by ``async_step_devices`` — keeps us from hitting the
+        # Cloud API twice for the same setup attempt.
+        self._pending_data: dict[str, Any] = {}
+        self._pending_options: dict[str, Any] = {}
+        self._pending_devices: dict[str, dict[str, Any]] = {}
+        self._pending_names: dict[str, str] = {}
 
     @staticmethod
     @callback
@@ -68,7 +168,7 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the single-step user form."""
+        """Handle the first step — auth + server URI."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -95,7 +195,7 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 session = async_get_clientsession(self.hass)
                 try:
                     api = ShellyCloudControl(session, server_uri, auth_key)
-                    device_count = await api.validate()
+                    devices, names = await _fetch_devices_and_names(api)
                 except ShellyCloudAuthError:
                     errors["base"] = "invalid_auth"
                 except ShellyCloudTransportError:
@@ -105,9 +205,10 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = "unknown"
                 else:
                     _LOGGER.info(
-                        "Shelly Cloud DIY: validated %d device(s) on %s",
-                        device_count,
+                        "Shelly Cloud DIY: validated %d device(s) on %s (%d named)",
+                        len(devices),
                         server_uri,
+                        len(names),
                     )
 
                     # Tie the entry to the server URI so the user cannot
@@ -115,25 +216,84 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(server_uri)
                     self._abort_if_unique_id_configured()
 
-                    options: dict[str, Any] = {
+                    self._pending_data = {
+                        CONF_AUTH_KEY: auth_key,
+                        CONF_SERVER_URI: server_uri,
+                    }
+                    self._pending_options = {
                         CONF_POLL_INTERVAL: poll_interval,
                     }
                     if safe_gw:
-                        options[CONF_LOCAL_GATEWAY_URL] = safe_gw
+                        self._pending_options[CONF_LOCAL_GATEWAY_URL] = safe_gw
+                    self._pending_devices = devices
+                    self._pending_names = names
 
-                    return self.async_create_entry(
-                        title="Shelly Cloud DIY",
-                        data={
-                            CONF_AUTH_KEY: auth_key,
-                            CONF_SERVER_URI: server_uri,
-                        },
-                        options=options,
-                    )
+                    return await self.async_step_devices()
 
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
+        )
+
+    async def async_step_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Second step — pick which devices get materialised as entities."""
+        options = _build_device_options(
+            self._pending_devices, self._pending_names
+        )
+
+        if user_input is not None:
+            create_all = bool(user_input.get(CONF_CREATE_ALL_INITIALLY, False))
+            selected = user_input.get(CONF_ENABLED_DEVICES) or []
+            if not isinstance(selected, list):
+                selected = [selected]
+
+            entry_options = dict(self._pending_options)
+            if create_all:
+                entry_options[CONF_CREATE_ALL_INITIALLY] = True
+                # Preserve the full id list so that if the user later
+                # unticks "all devices" in the options flow, we have a
+                # sensible default to pre-populate.
+                entry_options[CONF_ENABLED_DEVICES] = list(
+                    self._pending_devices.keys()
+                )
+            else:
+                entry_options[CONF_CREATE_ALL_INITIALLY] = False
+                entry_options[CONF_ENABLED_DEVICES] = [
+                    d for d in selected if isinstance(d, str)
+                ]
+
+            return self.async_create_entry(
+                title="Shelly Cloud DIY",
+                data=self._pending_data,
+                options=entry_options,
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_CREATE_ALL_INITIALLY, default=False
+                ): bool,
+                vol.Optional(
+                    CONF_ENABLED_DEVICES, default=[]
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="devices",
+            data_schema=schema,
+            description_placeholders={
+                "total": str(len(self._pending_devices)),
+            },
         )
 
     async def async_step_reauth(
@@ -185,12 +345,17 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class ShellyCloudDiyOptionsFlow(OptionsFlow):
-    """Options flow — poll interval and optional local gateway URL."""
+    """Options flow — poll interval, local gateway URL, and device selection."""
+
+    def __init__(self) -> None:
+        self._pending_devices: dict[str, dict[str, Any]] = {}
+        self._pending_names: dict[str, str] = {}
+        self._pending_base_options: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Single-step options form."""
+        """First step — poll interval + local gateway URL."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -203,15 +368,36 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                     errors[CONF_LOCAL_GATEWAY_URL] = "invalid_gateway_url"
 
             if not errors:
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        CONF_POLL_INTERVAL: int(
-                            user_input.get(CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT)
-                        ),
-                        CONF_LOCAL_GATEWAY_URL: safe_gw,
-                    },
+                self._pending_base_options = {
+                    CONF_POLL_INTERVAL: int(
+                        user_input.get(CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT)
+                    ),
+                    CONF_LOCAL_GATEWAY_URL: safe_gw,
+                }
+
+                # Fetch the current fleet + names so the device-selection
+                # step can present up-to-date labels. Errors here are not
+                # fatal — we fall back to skipping the step and preserving
+                # the previously-saved selection.
+                session = async_get_clientsession(self.hass)
+                api = ShellyCloudControl(
+                    session,
+                    self.config_entry.data[CONF_SERVER_URI],
+                    self.config_entry.data[CONF_AUTH_KEY],
                 )
+                try:
+                    devices, names = await _fetch_devices_and_names(api)
+                except ShellyCloudError as err:
+                    _LOGGER.warning(
+                        "Options flow: skipped device refresh (%s); "
+                        "device selection stays as previously saved.",
+                        err,
+                    )
+                    return self._save(self._pending_base_options)
+
+                self._pending_devices = devices
+                self._pending_names = names
+                return await self.async_step_devices()
 
         current_interval = int(
             self.config_entry.options.get(CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT)
@@ -234,3 +420,72 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             data_schema=schema,
             errors=errors,
         )
+
+    async def async_step_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Second step — update the opt-in device selection."""
+        options = _build_device_options(
+            self._pending_devices, self._pending_names
+        )
+
+        if user_input is not None:
+            create_all = bool(user_input.get(CONF_CREATE_ALL_INITIALLY, False))
+            selected = user_input.get(CONF_ENABLED_DEVICES) or []
+            if not isinstance(selected, list):
+                selected = [selected]
+
+            entry_options = dict(self._pending_base_options)
+            if create_all:
+                entry_options[CONF_CREATE_ALL_INITIALLY] = True
+                entry_options[CONF_ENABLED_DEVICES] = list(
+                    self._pending_devices.keys()
+                )
+            else:
+                entry_options[CONF_CREATE_ALL_INITIALLY] = False
+                entry_options[CONF_ENABLED_DEVICES] = [
+                    d for d in selected if isinstance(d, str)
+                ]
+            return self._save(entry_options)
+
+        current_opts = self.config_entry.options
+        default_create_all = bool(
+            current_opts.get(CONF_CREATE_ALL_INITIALLY, False)
+        )
+        raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
+        if isinstance(raw_enabled, list):
+            default_enabled = [d for d in raw_enabled if isinstance(d, str)]
+        else:
+            # Pre-v0.4.0 entry being edited for the first time — default
+            # to "all currently visible" so the user sees their fleet
+            # pre-ticked instead of empty.
+            default_enabled = list(self._pending_devices.keys())
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_CREATE_ALL_INITIALLY, default=default_create_all
+                ): bool,
+                vol.Optional(
+                    CONF_ENABLED_DEVICES, default=default_enabled
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="devices",
+            data_schema=schema,
+            description_placeholders={
+                "total": str(len(self._pending_devices)),
+            },
+        )
+
+    def _save(self, options: dict[str, Any]) -> FlowResult:
+        """Persist options and return an empty-title entry so HA saves them."""
+        return self.async_create_entry(title="", data=options)

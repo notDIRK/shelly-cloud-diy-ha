@@ -11,6 +11,7 @@ know about the raw HTTP shape.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -29,11 +30,17 @@ from .api.cloud_control import (
     ShellyCloudError,
 )
 from .const import (
+    CONF_CREATE_ALL_INITIALLY,
+    CONF_ENABLED_DEVICES,
     CONF_POLL_INTERVAL,
     DOMAIN,
     POLL_INTERVAL_DEFAULT,
     SIGNAL_NEW_DEVICE,
 )
+
+# Gap between the v1 poll completing and the v2 name lookup firing, so we
+# stay under the 1 req/s per-account rate limit that both endpoints share.
+_V2_NAME_LOOKUP_GAP_S = 1.2
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -83,6 +90,13 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self._api = api
         self.devices: dict[str, dict[str, Any]] = {}
         self._known_device_ids: set[str] = set()
+        # Cache of device_id → user-set name fetched from the v2 API. Names
+        # are resolved lazily after the first successful poll and whenever
+        # new devices appear; we never re-fetch already-known names (they
+        # change rarely and cost rate-limit budget).
+        self.device_names: dict[str, str] = {}
+        # Populated by ``_refresh_device_names`` when it schedules itself.
+        self._name_lookup_in_flight = False
 
     # ── Properties platform code may inspect ──────────────────────────
 
@@ -90,6 +104,53 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def api(self) -> ShellyCloudControl:
         """Expose the API client for platform-level calls if needed."""
         return self._api
+
+    # ── Per-device opt-in gate (v0.4.0) ───────────────────────────────
+
+    @property
+    def _options(self) -> dict[str, Any]:
+        return dict(self._entry.options)
+
+    @property
+    def create_all_initially(self) -> bool:
+        """Whether every account-visible device should be materialised.
+
+        Set to ``True`` for v0.3.x upgraders (via the migration in
+        ``async_setup_entry``) and for users who tick "create entities for
+        all devices" during setup. Users can later untick this in the
+        options flow and switch to a curated subset.
+        """
+        return bool(self._options.get(CONF_CREATE_ALL_INITIALLY, False))
+
+    @property
+    def enabled_ids(self) -> set[str]:
+        """Return the set of device_ids that should produce HA entities.
+
+        Semantics:
+        - ``create_all_initially=True`` → all devices (returns the full
+          set of currently-known ids).
+        - otherwise, ``enabled_devices`` list → that set.
+        - neither present (shouldn't happen post-migration but guarded for
+          safety) → all devices, same as ``create_all_initially``.
+        """
+        opts = self._options
+        if opts.get(CONF_CREATE_ALL_INITIALLY):
+            return set(self.devices.keys())
+        raw = opts.get(CONF_ENABLED_DEVICES)
+        if isinstance(raw, list):
+            return {d for d in raw if isinstance(d, str)}
+        # No explicit selection — fall back to all (greenfield safety net).
+        return set(self.devices.keys())
+
+    def is_enabled(self, device_id: str) -> bool:
+        """Return True if ``device_id`` should be materialised as entities."""
+        opts = self._options
+        if opts.get(CONF_CREATE_ALL_INITIALLY):
+            return True
+        raw = opts.get(CONF_ENABLED_DEVICES)
+        if isinstance(raw, list):
+            return device_id in raw
+        return True
 
     # ── Polling ───────────────────────────────────────────────────────
 
@@ -137,22 +198,71 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 "status": status,
                 "online": online,
                 "device_code": code,
-                # /device/all_status does not return the user-set name;
-                # stays None and the base-entity falls back to the model name.
-                "name": None,
+                # Seed with whatever we already resolved via the v2 name
+                # lookup; stays None until that lookup succeeds.
+                "name": self.device_names.get(device_id),
             }
 
-        # Fire SIGNAL_NEW_DEVICE for devices we hadn't seen on previous polls
-        # so platform async_setup_entry handlers can register new entities.
+        # Fire SIGNAL_NEW_DEVICE only for devices the user has actually
+        # enabled — if they've opted out of a device we still poll it (so
+        # commands and data stay consistent) but we never materialise
+        # entities for it.
         newly_seen = set(new_devices) - self._known_device_ids
         if newly_seen:
             _LOGGER.info("Cloud Control API: discovered %d new device(s)", len(newly_seen))
         for device_id in newly_seen:
-            async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
+            if self.is_enabled(device_id):
+                async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
         self._known_device_ids = set(new_devices)
 
         self.devices = new_devices
+
+        # Schedule a v2 name lookup for any device we haven't resolved yet,
+        # but only for devices currently online (v2 returns no settings
+        # for offline devices so the call is wasted on them).
+        unresolved = [
+            did for did, info in new_devices.items()
+            if did not in self.device_names and info.get("online")
+        ]
+        if unresolved and not self._name_lookup_in_flight:
+            self._name_lookup_in_flight = True
+            self.hass.async_create_task(self._refresh_device_names(unresolved))
+
         return new_devices
+
+    async def _refresh_device_names(self, ids: list[str]) -> None:
+        """Fetch user-set names for ``ids`` via the v2 API and cache them.
+
+        Runs as a background task after ``_async_update_data`` completes so
+        it does not delay the coordinator's next tick. Waits
+        ``_V2_NAME_LOOKUP_GAP_S`` to stay under the shared 1 req/s rate
+        limit, then batches every missing id into a single v2 request.
+        Failures are logged at debug level — a missing name is not worth
+        bubbling up as an UpdateFailed.
+        """
+        try:
+            await asyncio.sleep(_V2_NAME_LOOKUP_GAP_S)
+            names = await self._api.get_device_names(ids)
+        except ShellyCloudAuthError:
+            _LOGGER.debug("v2 name lookup rejected auth_key — skipping")
+            return
+        except ShellyCloudError as err:
+            _LOGGER.debug("v2 name lookup failed: %s", err)
+            return
+        finally:
+            self._name_lookup_in_flight = False
+
+        if not names:
+            return
+
+        self.device_names.update(names)
+        for did, name in names.items():
+            entry = self.devices.get(did)
+            if entry is not None:
+                entry["name"] = name
+        _LOGGER.info("Resolved %d device name(s) via v2 API", len(names))
+        # Push updated device_info to platforms without waiting for next poll.
+        self.async_update_listeners()
 
     # ── Command dispatch (compat shim for platform files) ─────────────
 

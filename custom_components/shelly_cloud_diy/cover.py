@@ -34,6 +34,8 @@ async def async_setup_entry(
     def create_covers(device_id: str) -> list[CoverEntity]:
         """Create cover entities for a device."""
         entities: list[CoverEntity] = []
+        if not coordinator.is_enabled(device_id):
+            return entities
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
 

@@ -17,6 +17,18 @@
           "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
         }
       },
+      "devices": {
+        "title": "Choose devices to expose",
+        "description": "The Shelly Cloud account exposes {total} device(s). By default, only the devices you tick below will be materialised as Home Assistant entities. This prevents duplicate entities if you already run the built-in Shelly (LAN) integration alongside this one.",
+        "data": {
+          "create_all_initially": "Create entities for all devices",
+          "enabled_devices": "Devices to expose as entities"
+        },
+        "data_description": {
+          "create_all_initially": "Tick to always create entities for every device the account can see (including future ones). Leave unticked to curate the list below.",
+          "enabled_devices": "Only ticked devices will produce Home Assistant entities. Ignored if \"Create entities for all devices\" is ticked."
+        }
+      },
       "reauth_confirm": {
         "title": "Re-authenticate Shelly Cloud DIY",
         "description": "The Shelly Cloud rejected the stored Authorization cloud key. Paste a fresh key from the Shelly App (User settings → Authorization cloud key) to restore access.",
@@ -42,7 +54,7 @@
     "step": {
       "init": {
         "title": "Shelly Cloud DIY options",
-        "description": "Adjust how often the integration polls Shelly Cloud for state and, optionally, the local gateway URL used by the historical-data service.",
+        "description": "Adjust how often the integration polls Shelly Cloud for state and, optionally, the local gateway URL used by the historical-data service. Device selection follows on the next step.",
         "data": {
           "poll_interval": "Poll interval (seconds)",
           "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
@@ -50,6 +62,18 @@
         "data_description": {
           "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
           "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
+        }
+      },
+      "devices": {
+        "title": "Choose devices to expose",
+        "description": "The Shelly Cloud account exposes {total} device(s). Tick \"Create entities for all devices\" to mirror every device, or pick a subset below.",
+        "data": {
+          "create_all_initially": "Create entities for all devices",
+          "enabled_devices": "Devices to expose as entities"
+        },
+        "data_description": {
+          "create_all_initially": "When ticked, every device the account can see is materialised — including any that are added to the Shelly account in the future.",
+          "enabled_devices": "Only ticked devices produce Home Assistant entities. Offline devices are marked with ⚠."
         }
       }
     },
