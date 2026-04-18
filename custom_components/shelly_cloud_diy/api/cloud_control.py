@@ -100,32 +100,41 @@ class ShellyCloudControl:
     async def _post(self, path: str, extra: dict[str, Any] | None = None) -> dict:
         """POST a form request and return the parsed JSON body.
 
-        Raises one of the ``ShellyCloud*Error`` subclasses on any failure;
-        callers can catch the base class to treat everything uniformly.
+        Retries once on HTTP 429 after a 1.2 s sleep so a parallel consumer
+        of the auth_key (e.g. the Shelly mobile app) briefly sharing the
+        1 req/s budget does not stall the coordinator. Any further 429
+        surfaces as :class:`ShellyCloudRateLimitError` so the caller can
+        back off properly.
         """
         url = f"{self._base_url}{path}"
         payload = {"auth_key": self._auth_key}
         if extra:
             payload.update({k: str(v) for k, v in extra.items() if v is not None})
 
-        try:
-            async with self._session.post(
-                url, data=payload, timeout=self._timeout
-            ) as response:
-                if response.status == 401 or response.status == 403:
-                    raise ShellyCloudAuthError(
-                        f"Shelly Cloud rejected auth_key ({response.status})"
-                    )
-                if response.status == 429:
-                    raise ShellyCloudRateLimitError(
-                        "Rate limit exceeded (1 req/s)"
-                    )
-                response.raise_for_status()
-                data = await response.json(content_type=None)
-        except asyncio.TimeoutError as err:
-            raise ShellyCloudTransportError(f"Timeout calling {path}") from err
-        except aiohttp.ClientError as err:
-            raise ShellyCloudTransportError(f"HTTP error calling {path}: {err}") from err
+        data: dict | None = None
+        for attempt in range(2):
+            try:
+                async with self._session.post(
+                    url, data=payload, timeout=self._timeout
+                ) as response:
+                    if response.status == 401 or response.status == 403:
+                        raise ShellyCloudAuthError(
+                            f"Shelly Cloud rejected auth_key ({response.status})"
+                        )
+                    if response.status == 429:
+                        if attempt == 0:
+                            await asyncio.sleep(1.2)
+                            continue
+                        raise ShellyCloudRateLimitError(
+                            "Rate limit exceeded (1 req/s)"
+                        )
+                    response.raise_for_status()
+                    data = await response.json(content_type=None)
+                    break
+            except asyncio.TimeoutError as err:
+                raise ShellyCloudTransportError(f"Timeout calling {path}") from err
+            except aiohttp.ClientError as err:
+                raise ShellyCloudTransportError(f"HTTP error calling {path}: {err}") from err
 
         # Shelly wraps every response in {"isok": bool, "data": …, "errors": …}
         if not isinstance(data, dict):

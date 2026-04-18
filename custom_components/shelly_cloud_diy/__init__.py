@@ -1,8 +1,9 @@
 """Shelly Cloud DIY integration for Home Assistant.
 
 Entry point that:
-- Validates the stored ``auth_key`` by hitting the Cloud Control API once.
-- Builds the polling coordinator and forwards to entity platforms.
+- Builds the polling coordinator (its first refresh validates the
+  stored ``auth_key`` and surfaces auth / transport errors back to HA).
+- Forwards to entity platforms.
 - Wires up the historical-data service (local-gateway flavour; unchanged
   from the pre-pivot code path).
 - Provides ghost-entity purging on device removal from the HA UI.
@@ -18,18 +19,13 @@ import logging
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api.cloud_control import (
-    ShellyCloudAuthError,
-    ShellyCloudControl,
-    ShellyCloudError,
-    ShellyCloudTransportError,
-)
+from .api.cloud_control import ShellyCloudControl
 from .const import (
     CONF_AUTH_KEY,
     CONF_SERVER_URI,
@@ -58,24 +54,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
     api = ShellyCloudControl(session, server_uri, auth_key)
 
-    try:
-        device_count = await api.validate()
-    except ShellyCloudAuthError as err:
-        raise ConfigEntryAuthFailed(str(err)) from err
-    except ShellyCloudTransportError as err:
-        raise ConfigEntryNotReady(f"Cannot reach {server_uri}: {err}") from err
-    except ShellyCloudError as err:
-        raise ConfigEntryNotReady(f"Shelly Cloud API error: {err}") from err
+    coordinator = ShellyCloudCoordinator(hass, entry, api)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[DOMAIN][entry.entry_id] = coordinator
 
     _LOGGER.info(
         "Shelly Cloud DIY: connected to %s, %d device(s) visible",
         server_uri,
-        device_count,
+        len(coordinator.devices),
     )
-
-    coordinator = ShellyCloudCoordinator(hass, entry, api)
-    await coordinator.async_config_entry_first_refresh()
-    hass.data[DOMAIN][entry.entry_id] = coordinator
 
     # Purge ghost entity records left over from previously-deleted devices
     # so a later re-add produces fresh entity IDs (carried over from the
