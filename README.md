@@ -2,12 +2,12 @@
 
 ![Shelly Cloud DIY](images/icon.png)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/notDIRK/shelly-cloud-diy-ha)](https://github.com/notDIRK/shelly-cloud-diy-ha/releases)
 
 > 🇩🇪 **Deutsch:** Eine deutschsprachige Version dieses Dokuments findest du in [`README.de.md`](README.de.md).
 
-> ℹ️ **Release status:** `v0.4.x` is the current line, built on the **Cloud Control API** (self-service `auth_key`). The `v0.2.x` tags are the legacy **Integrator API** implementation inherited from the engesin upstream and are kept for traceability only. Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) — Milestone 2 adds OAuth + WebSocket realtime.
+> ℹ️ **Release status:** `v0.4.x` is the current line, built on the **Cloud Control API** (self-service `auth_key`), and is **available in the [HACS default store](https://hacs.xyz)** — just search for *Shelly Cloud DIY*, no custom-repository URL needed. The `v0.2.x` tags are the legacy **Integrator API** implementation inherited from the engesin upstream and are kept for traceability only. Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) — Milestone 2 adds OAuth + WebSocket realtime.
 
 ---
 
@@ -89,17 +89,33 @@ Shelly also notes that the HTTP endpoints are *intentionally only lightly docume
 
 ---
 
-## Installation (HACS custom repository)
+## Installation (HACS)
 
-> The integration will be submitted to the HACS default store after Milestone 1 stabilises. Until then, add it as a custom repository:
+The integration is in the **HACS default store**, so no custom-repository URL is needed.
 
 1. Open **HACS** in Home Assistant.
-2. Click the three-dots menu → **Custom repositories**.
-3. Paste the repository URL: `https://github.com/notDIRK/shelly-cloud-diy-ha`
-4. Select category **Integration** and click **Add**.
-5. Find **Shelly Cloud DIY** in the HACS integration list, click **Download**.
-6. Restart Home Assistant.
-7. Continue with *Setup* below.
+2. Search for **Shelly Cloud DIY**.
+3. Click **Download** and pick the latest version.
+4. Restart Home Assistant.
+5. Continue with *Setup* below.
+
+### Upgrading from the custom repository
+
+If you previously added this integration as a HACS *custom repository* (under the old
+`notDIRK/shelly-integrator-ha` URL), moving to the default-store entry is safe — the integration
+**domain stays `shelly_cloud_diy`**, so your config entry, entities (and therefore your dashboards)
+are preserved. Notes from a real migration:
+
+- **HACS removes the redundant custom-repository entry automatically** once the repo is served from
+  the default store. If your custom entry "disappears on its own", that is expected — not a bug.
+- When HACS asks during removal whether to **also remove the configuration**, **decline it**. That
+  option deletes the Home Assistant config entry (devices, area assignments, entity IDs). Remove
+  only the downloaded code; keep the config entry.
+- **Order matters:** re-download from the default store **first**, then restart Home Assistant.
+  Removing the files leaves the integration running in memory (it looks fine), so restarting in that
+  state briefly marks all entities `unavailable`.
+- The harmless log line *"custom integration shelly_cloud_diy which has not been tested by Home
+  Assistant"* is normal for any `custom_components/` integration and is not an error.
 
 ---
 
@@ -117,9 +133,9 @@ Shelly also notes that the HTTP endpoints are *intentionally only lightly docume
 Full plan with per-milestone scope, non-goals, and limitations: [`docs/ROADMAP.md`](docs/ROADMAP.md) · German: [`docs/ROADMAP.de.md`](docs/ROADMAP.de.md).
 
 - ✅ **M0 Foundation** — fork, security hardening, pivot research and verification, repo rename, CLOUD DIY branding
-- 🔄 **M1 Cloud Control API + `auth_key` + HTTP polling** — first HACS release target
+- ✅ **M1 Cloud Control API + `auth_key` + HTTP polling** — shipped (`v0.4.x`)
 - ⏳ **M2 OAuth + WebSocket realtime** — push-based sub-second updates
-- 💡 **M3 HACS default-store submission** — logo PR to `home-assistant/brands`, clean stable release
+- ✅ **M3 HACS default-store submission** — merged ([hacs/default#7101](https://github.com/hacs/default/pull/7101)); the integration ships its own `brand/` icons (HA 2026.3+), since `home-assistant/brands` no longer accepts custom-integration icons
 - 💡 **M4 HA Core quality-scale polish** — diagnostics, repairs, test coverage
 
 ---

@@ -2,12 +2,12 @@
 
 ![Shelly Cloud DIY](images/icon.png)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/notDIRK/shelly-cloud-diy-ha)](https://github.com/notDIRK/shelly-cloud-diy-ha/releases)
 
 > 🇬🇧 **English:** The primary language of this project is English. See [`README.md`](README.md) for the English version.
 
-> ℹ️ **Release-Stand:** `v0.4.x` ist die aktuelle Linie, basierend auf der **Cloud Control API** (self-service `auth_key`). Die `v0.2.x`-Tags sind die Legacy-**Integrator-API-Implementierung** aus dem engesin-Upstream und bleiben nur aus Nachvollziehbarkeit bestehen. Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · deutsche Fassung: [`docs/ROADMAP.de.md`](docs/ROADMAP.de.md) — Milestone 2 bringt OAuth + WebSocket-Realtime.
+> ℹ️ **Release-Stand:** `v0.4.x` ist die aktuelle Linie, basierend auf der **Cloud Control API** (self-service `auth_key`), und ist **im [HACS-Default-Store](https://hacs.xyz) verfügbar** — einfach nach *Shelly Cloud DIY* suchen, keine Custom-Repository-URL nötig. Die `v0.2.x`-Tags sind die Legacy-**Integrator-API-Implementierung** aus dem engesin-Upstream und bleiben nur aus Nachvollziehbarkeit bestehen. Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · deutsche Fassung: [`docs/ROADMAP.de.md`](docs/ROADMAP.de.md) — Milestone 2 bringt OAuth + WebSocket-Realtime.
 
 ---
 
@@ -89,17 +89,34 @@ Shelly weist außerdem darauf hin, dass die HTTP-Endpunkte *absichtlich nur grob
 
 ---
 
-## Installation (HACS-Custom-Repository)
+## Installation (HACS)
 
-> Nach Stabilisierung von Meilenstein 1 wird die Integration am HACS-Default-Store eingereicht. Bis dahin als Custom Repository einbinden:
+Die Integration ist im **HACS-Default-Store** — eine Custom-Repository-URL ist nicht mehr nötig.
 
 1. **HACS** in Home Assistant öffnen.
-2. Auf das Drei-Punkte-Menü → **Custom repositories** klicken.
-3. Repo-URL eintragen: `https://github.com/notDIRK/shelly-cloud-diy-ha`
-4. Kategorie **Integration** wählen und **Add** klicken.
-5. In der HACS-Integrations-Liste **Shelly Cloud DIY** suchen und **Download** klicken.
-6. Home Assistant neu starten.
-7. Weiter mit *Setup* unten.
+2. Nach **Shelly Cloud DIY** suchen.
+3. **Download** klicken und die neueste Version wählen.
+4. Home Assistant neu starten.
+5. Weiter mit *Setup* unten.
+
+### Umstieg vom Custom Repository
+
+Wenn du die Integration früher als HACS-*Custom-Repository* (unter der alten URL
+`notDIRK/shelly-integrator-ha`) eingebunden hattest, ist der Wechsel auf den Default-Store-Eintrag
+gefahrlos — die **Domain bleibt `shelly_cloud_diy`**, also bleiben Config-Eintrag, Entities und damit
+deine Dashboards erhalten. Hinweise aus einer echten Migration:
+
+- **HACS entfernt den überflüssigen Custom-Repository-Eintrag automatisch**, sobald das Repo aus dem
+  Default-Store kommt. Wenn dein Custom-Eintrag „von selbst verschwindet", ist das so gewollt — kein
+  Fehler.
+- Wenn HACS beim Entfernen fragt, ob **auch die Konfiguration entfernt** werden soll, **lehne das ab**.
+  Diese Option löscht den Home-Assistant-Config-Eintrag (Geräte, Area-Zuordnungen, Entitäts-IDs). Nur
+  den heruntergeladenen Code entfernen, den Config-Eintrag behalten.
+- **Reihenfolge ist wichtig:** **erst** aus dem Default-Store neu herunterladen, **dann** Home Assistant
+  neu starten. Nach dem Entfernen läuft die Integration noch im Speicher weiter (sieht funktionsfähig
+  aus); ein Neustart in diesem Zustand markiert kurz alle Entities als `unavailable`.
+- Die harmlose Log-Zeile *„custom integration shelly_cloud_diy which has not been tested by Home
+  Assistant"* ist für jede `custom_components/`-Integration normal und kein Fehler.
 
 ---
 
@@ -117,9 +134,9 @@ Shelly weist außerdem darauf hin, dass die HTTP-Endpunkte *absichtlich nur grob
 Vollständiger Plan mit Scope, Nicht-Zielen und Einschränkungen pro Meilenstein: [`docs/ROADMAP.md`](docs/ROADMAP.md) (Englisch) · [`docs/ROADMAP.de.md`](docs/ROADMAP.de.md) (Deutsch).
 
 - ✅ **M0 Grundlage** — Fork, Security-Härtung, Pivot-Recherche und Verifikation, Repo-Umbenennung, CLOUD-DIY-Branding
-- 🔄 **M1 Cloud Control API + `auth_key` + HTTP-Polling** — Ziel für das erste HACS-Release
+- ✅ **M1 Cloud Control API + `auth_key` + HTTP-Polling** — ausgeliefert (`v0.4.x`)
 - ⏳ **M2 OAuth + WebSocket-Realtime** — Push-basierte Sub-Sekunden-Updates
-- 💡 **M3 HACS-Default-Store-Aufnahme** — Logo-PR an `home-assistant/brands`, sauberes Stable-Release
+- ✅ **M3 HACS-Default-Store-Aufnahme** — gemerged ([hacs/default#7101](https://github.com/hacs/default/pull/7101)); die Integration liefert ihre eigenen `brand/`-Icons mit (HA 2026.3+), da `home-assistant/brands` keine Custom-Integration-Icons mehr annimmt
 - 💡 **M4 HA-Core-Quality-Scale-Politur** — Diagnostics, Repairs, Testabdeckung
 
 ---
