@@ -25,14 +25,36 @@ keep using it** for the devices on your LAN. It is sub-second fast and works
 when the internet is down. Shelly Cloud DIY does **not** replace it. It fills
 the gaps the LAN integration cannot reach:
 
+### No gatekeeping — start in 2 minutes
+
+**You can set this up yourself, right now, without asking anyone for
+permission.** Open the Shelly app, copy your cloud `auth_key`, paste it into
+Home Assistant — done in about two minutes. There is no application form, no
+support email, no approval queue, no waiting on a vendor's "yes". You own your
+access.
+
+That matters because the *other* cloud route — the **Integrator API** used by
+`engesin/shelly-integrator-ha` — needs a token that **Shelly gates**. In
+Shelly's own words, *"licenses for personal use are not provided"*, so a private
+user must apply and **depend on Shelly's goodwill** — and may simply be refused.
+This project never puts you in that position.
+
+| | This project | Integrator-API route |
+|---|---|---|
+| **Auth** | `auth_key` you generate yourself (M1) / OAuth (M2) | Integrator API token, **gated by Shelly** |
+| **Getting access** | **Self-serve, now** — copy & paste in ~2 min | **Ask, then hope** — apply, no private-use licences |
+
 - **Shared devices.** Cloud Control API can see devices that other Shelly users
   have shared into your account — something a LAN integration structurally
   cannot do. (Verified empirically against a real ECOWITT WS90 weather station
   shared from another person's account.)
 - **Remote / cloud-only devices.** Devices at another site, or any device that
   is only reachable through the cloud, become visible in Home Assistant.
-- **Self-service access.** You generate an `auth_key` yourself in the Shelly
-  app. No gated Integrator-API token, no support email, no approval wait.
+- **Self-service access — no gatekeeper.** You generate an `auth_key` yourself
+  in the Shelly app in seconds (OAuth is the Milestone 2 path; either way it is
+  self-service). No gated Integrator-API token, no application form, no support
+  email, no approval queue. Your access never hinges on a vendor's discretionary
+  "yes" to a private user.
 
 > **Local-first, cloud-optional.** For locally-controlled devices, keep the
 > native local `shelly` integration — it is faster and offline-resilient. This
@@ -58,7 +80,7 @@ account beyond the share they granted you.
 | Project | Auth | Realtime | Shared devices | Maintained |
 |---|---|---|---|---|
 | **`shelly-cloud-diy-ha`** *(this repo)* | `auth_key` (M1) / OAuth (M2) | HTTP poll 5 s → WebSocket push (M2) | ✅ | 🔄 active |
-| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | Integrator API token *(gated — no private-use licences)* | WebSocket push | ❌ | ✅ |
+| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | Integrator API token *(gated by Shelly — "licenses for personal use are not provided", so private users must apply and may be refused)* | WebSocket push | ❌ | ✅ |
 | [HA Core — official Shelly integration](https://www.home-assistant.io/integrations/shelly/) | Local LAN / mDNS | LAN push | ❌ *(remote / shared devices unreachable over LAN)* | ✅ |
 | [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Local LAN | LAN push | ❌ | ❌ **discontinued** per its README |
 | [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | Username/password *(reverse-engineered)* | HTTP polling | ? | ❌ last push 2019 |
