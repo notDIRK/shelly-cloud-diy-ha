@@ -16,7 +16,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
-from .services.fleet_map import compute_fleet, to_diagnostics
+from .services.fleet_map import compute_fleet, gather_cloud_devices, to_diagnostics
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -37,8 +37,9 @@ async def async_get_config_entry_diagnostics(
 
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
+    cloud_devices = await gather_cloud_devices(coordinator)
     fleet, suggestions, resilience = compute_fleet(
-        hass, coordinator, dev_reg, ent_reg
+        hass, cloud_devices, dev_reg, ent_reg
     )
     return {
         "fleet_map": async_redact_data(

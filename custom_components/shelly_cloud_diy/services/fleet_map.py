@@ -183,6 +183,83 @@ def match(cloud_id: str, local_index: dict[str, dr.DeviceEntry]) -> str | None:
     return device.id if device is not None else None
 
 
+# ── Cloud-device universe (offline-inclusive) ───────────────────────────
+
+
+@dataclass(frozen=True)
+class CloudDevice:
+    """One cloud-account device: its (eventually-consistent) name + reachability."""
+
+    name: str | None
+    online: bool
+
+
+def _fold_channel_id(cloud_id: str) -> str:
+    """Fold a per-channel sub-entry id into its parent device id.
+
+    The account device list (``/interface/device/list``) contains per-channel
+    sub-entries with ids like ``<parentid>_<digits>`` (a channel of a
+    multi-channel device, NOT a separate device). Strip a trailing
+    ``_<digits>`` suffix to recover the parent id; any other id is returned
+    unchanged. A real Wi-Fi MAC (12 hex) and an ``XB<decimal>`` id never
+    contain ``_``, so only true channel sub-entries are folded.
+
+    Examples::
+
+        _fold_channel_id("aabbccddeeff_1")     == "aabbccddeeff"
+        _fold_channel_id("XB281474976710655_3") == "XB281474976710655"
+        _fold_channel_id("aabbccddeeff")       == "aabbccddeeff"
+        _fold_channel_id("EMERGENCY-PVE4")     == "EMERGENCY-PVE4"
+    """
+    m = re.match(r"^(.+)_\d+$", cloud_id)
+    return m.group(1) if m else cloud_id
+
+
+async def gather_cloud_devices(
+    coordinator: ShellyCloudCoordinator,
+) -> dict[str, CloudDevice]:
+    """Return the FULL cloud-device universe ``id → CloudDevice``, offline-inclusive.
+
+    ``coordinator.devices`` comes from ``/device/all_status``, which OMITS
+    offline devices. This best-effort augments that set with the full account
+    list (``/interface/device/list``), which DOES include offline devices —
+    that augmentation is exactly what makes OFFLINE devices visible to the
+    fleet map, central to the replace use case (a device you replace is
+    dead/offline). Devices added from the full list are, by construction,
+    offline (``online=False``); devices already in ``coordinator.devices``
+    carry their real reachability flag.
+
+    The augmentation is best-effort: on any failure it degrades silently to
+    the all_status set (each with its real online flag) and never raises.
+    """
+    universe: dict[str, CloudDevice] = {
+        cid: CloudDevice(
+            name=coordinator.device_names.get(cid),
+            online=bool(info.get("online")),
+        )
+        for cid, info in coordinator.devices.items()
+    }
+    try:
+        names = await coordinator.api.get_device_names()
+        for list_id, list_name in names.items():
+            parent = _fold_channel_id(list_id)
+            if parent in universe:
+                # Never overwrite an existing universe entry, and never let a
+                # channel child's name become the parent's name.
+                continue
+            # Only adopt a name if the parent is itself a list entry; a
+            # channel child's name (<parent>_N) must not name the parent.
+            # Anything new here is absent from all_status → offline.
+            universe[parent] = CloudDevice(name=names.get(parent), online=False)
+    except Exception:  # noqa: BLE001 - best-effort, must degrade, never raise
+        _LOGGER.debug(
+            "Fleet-Map: full device list unavailable; "
+            "falling back to all_status set",
+            exc_info=True,
+        )
+    return universe
+
+
 # ── Fleet map ───────────────────────────────────────────────────────────
 
 
@@ -192,6 +269,7 @@ class FleetEntry:
 
     cloud_id: str  # the join source — always present
     cloud_name: str | None  # eventually-consistent; NEVER part of matching
+    online: bool  # cloud reachability (offline devices are still listed)
     local_ha_device_id: str | None  # matched local twin (any integration)
     local_domain: str | None  # owning integration of the twin (shelly/bthome/…)
     local_has_entities: bool  # False → a bare discovery shell, not integrated
@@ -246,17 +324,23 @@ def _native_shelly_devices(
 
 def build_fleet_map(
     hass: HomeAssistant,
-    coordinator: ShellyCloudCoordinator,
+    cloud_devices: dict[str, CloudDevice],
     dev_reg: dr.DeviceRegistry,
     ent_reg: er.EntityRegistry,
 ) -> FleetMap:
-    """Compute the cloud↔local join — decoupled from names (MAC only)."""
+    """Compute the cloud↔local join — decoupled from names (MAC only).
+
+    ``cloud_devices`` is the offline-inclusive ``id → CloudDevice`` universe
+    (see ``gather_cloud_devices``). This function is PURE: no await, no
+    coordinator reference.
+    """
     with_entities = _device_ids_with_entities(ent_reg)
     local_index = _index_local_by_mac(dev_reg, with_entities)
     entries: list[FleetEntry] = []
     matched_local_ids: set[str] = set()
 
-    for cloud_id in coordinator.devices:
+    for cloud_id, cloud in cloud_devices.items():
+        cloud_name = cloud.name
         key = _cloud_mac_key(cloud_id)
         local_device = local_index.get(key) if key is not None else None
         local_id = local_device.id if local_device is not None else None
@@ -272,7 +356,8 @@ def build_fleet_map(
         entries.append(
             FleetEntry(
                 cloud_id=cloud_id,
-                cloud_name=coordinator.device_names.get(cloud_id),
+                cloud_name=cloud_name,
+                online=cloud.online,
                 local_ha_device_id=local_id,
                 local_domain=(
                     _device_domain(hass, local_device)
@@ -469,6 +554,12 @@ def _label(entry: FleetEntry) -> str:
     return entry.cloud_name or entry.cloud_id
 
 
+def _label_status(entry: FleetEntry) -> str:
+    """Device label with a trailing ``[OFFLINE]`` marker when unreachable."""
+    base = _label(entry)
+    return base if entry.online else f"{base} [OFFLINE]"
+
+
 def format_report(
     fleet: FleetMap,
     suggestions: list[NameSuggestion],
@@ -489,13 +580,15 @@ def format_report(
         e for e in fleet.entries if e.local_ha_device_id is None
     ]
 
+    offline_count = sum(1 for e in fleet.entries if e.online is False)
+
     lines: list[str] = []
     lines.append(
         f"Cloud devices: {len(fleet.entries)}  |  matched locally: "
         f"{len(matched_wifi) + len(matched_ble)} "
         f"(Wi-Fi {len(matched_wifi)} + Bluetooth {len(matched_ble)})  |  "
-        f"cloud-only: {len(cloud_only_devices)}  |  local-only Shelly: "
-        f"{len(fleet.local_only)}"
+        f"cloud-only: {len(cloud_only_devices)}  |  offline: {offline_count}  |  "
+        f"local-only Shelly: {len(fleet.local_only)}"
     )
     lines.append("")
 
@@ -503,7 +596,7 @@ def format_report(
     if matched_wifi:
         for e in matched_wifi:
             lines.append(
-                f"  • {_label(e)} — local {e.local_domain or '?'} device "
+                f"  • {_label_status(e)} — local {e.local_domain or '?'} device "
                 f"{e.local_ha_device_id}"
             )
         lines.append(
@@ -524,7 +617,7 @@ def format_report(
                 else "  [discovered only — not actually integrated]"
             )
             lines.append(
-                f"  • {_label(e)} — local {e.local_domain or '?'} device "
+                f"  • {_label_status(e)} — local {e.local_domain or '?'} device "
                 f"{e.local_ha_device_id}{note}"
             )
     else:
@@ -533,7 +626,7 @@ def format_report(
 
     lines.append("Cloud-only (no local twin — shared/remote, or not set up):")
     for e in cloud_only_devices:
-        lines.append(f"  • {_label(e)}")
+        lines.append(f"  • {_label_status(e)}")
     if not cloud_only_devices:
         lines.append("  (none)")
     lines.append("")
@@ -621,6 +714,7 @@ def to_diagnostics(
             "cloud_only": sum(
                 1 for e in fleet.entries if e.local_ha_device_id is None
             ),
+            "offline": sum(1 for e in fleet.entries if e.online is False),
             "local_only": len(fleet.local_only),
             "automation_scan_ok": resilience.automation_scan_ok,
         },
@@ -628,6 +722,7 @@ def to_diagnostics(
             {
                 "fingerprint": _fingerprint(e.cloud_id),
                 "cloud_name": e.cloud_name,
+                "online": e.online,
                 "match_kind": e.match_kind,
                 "local_domain": e.local_domain,
                 "local_has_entities": e.local_has_entities,
@@ -648,12 +743,12 @@ def to_diagnostics(
 
 def compute_fleet(
     hass: HomeAssistant,
-    coordinator: ShellyCloudCoordinator,
+    cloud_devices: dict[str, CloudDevice],
     dev_reg: dr.DeviceRegistry,
     ent_reg: er.EntityRegistry,
 ) -> tuple[FleetMap, list[NameSuggestion], ResilienceReport]:
-    """Run the full read-only computation for one coordinator."""
-    fleet = build_fleet_map(hass, coordinator, dev_reg, ent_reg)
+    """Run the full read-only computation for one cloud-device universe."""
+    fleet = build_fleet_map(hass, cloud_devices, dev_reg, ent_reg)
     suggestions = suggest_native_names(fleet, dev_reg)
     resilience = scan_resilience(hass, fleet, ent_reg)
     return fleet, suggestions, resilience
@@ -692,8 +787,9 @@ async def async_handle_fleet_map(
     reports: list[str] = []
     total_applied = 0
     for coordinator in coordinators:
+        cloud_devices = await gather_cloud_devices(coordinator)
         fleet, suggestions, resilience = compute_fleet(
-            hass, coordinator, dev_reg, ent_reg
+            hass, cloud_devices, dev_reg, ent_reg
         )
 
         applied: int | None = None

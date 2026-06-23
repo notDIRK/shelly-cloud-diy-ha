@@ -1,12 +1,19 @@
 {
   "domain": "shelly_cloud_diy",
   "name": "Shelly Cloud DIY",
-  "after_dependencies": ["recorder"],
-  "codeowners": ["@notDIRK"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@notDIRK"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/notDIRK/shelly-cloud-diy-ha",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/notDIRK/shelly-cloud-diy-ha/issues",
-  "requirements": ["aiohttp>=3.8.0", "aioshelly>=13.0.0"],
-  "version": "0.5.0b2"
+  "requirements": [
+    "aiohttp>=3.8.0",
+    "aioshelly>=13.0.0"
+  ],
+  "version": "0.5.0b3"
 }
