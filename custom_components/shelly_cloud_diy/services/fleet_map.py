@@ -54,6 +54,15 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# HA helper/derivative domains that attach to a real device via a config entry
+# but are NOT the hardware integration. When a device belongs to several config
+# entries, these are skipped so the report shows the real hardware domain.
+_HELPER_DOMAINS = frozenset({
+    "switch_as_x", "group", "template", "derivative", "integration",
+    "utility_meter", "threshold", "min_max", "trend", "statistics",
+    "filter", "tod", "schedule", "scrape", "history_stats", "random",
+})
+
 # A cloud Wi-Fi device_id is the MAC as 12 lowercase hex chars, no separators.
 _HEX12 = re.compile(r"^[0-9a-fA-F]{12}$")
 # BLE/BLU cloud ids are "XB" + the BLE MAC encoded as a decimal integer.
@@ -163,15 +172,25 @@ def _index_local_by_mac(
 
 
 def _device_domain(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None:
-    """Best-effort owning integration domain of a device entry."""
+    """Best-effort owning integration domain of a device entry.
+
+    A device can belong to multiple config entries — e.g. a ``shelly`` device
+    that also has a ``switch_as_x`` helper attached. Prefer the real hardware
+    integration domain over any known HA helper/derivative domain; fall back to
+    the first resolvable domain if every entry is a helper.
+    """
     entry_id = getattr(device, "primary_config_entry", None)
     candidates = [entry_id] if entry_id else []
     candidates += [e for e in device.config_entries if e != entry_id]
+    domains: list[str] = []
     for candidate in candidates:
         entry = hass.config_entries.async_get_entry(candidate)
         if entry is not None:
-            return entry.domain
-    return None
+            domains.append(entry.domain)
+    for domain in domains:
+        if domain not in _HELPER_DOMAINS:
+            return domain
+    return domains[0] if domains else None
 
 
 def match(cloud_id: str, local_index: dict[str, dr.DeviceEntry]) -> str | None:
