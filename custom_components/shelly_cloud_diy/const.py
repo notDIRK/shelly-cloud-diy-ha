@@ -50,6 +50,22 @@ HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily
 
 SIGNAL_NEW_DEVICE = f"{DOMAIN}_new_device"
 
+# ── Fleet-Map overlay (Stage 1) ────────────────────────────────────
+
+# Domain of Home Assistant Core's native (local/LAN) Shelly integration.
+# The Fleet-Map overlay joins our cloud devices to native ones purely by
+# MAC, so we only need the domain string — never a Python import of the
+# native integration's internals.
+NATIVE_SHELLY_DOMAIN = "shelly"
+
+# Entity domains that constitute *control* (as opposed to read-only
+# sensing). Used by the resilience check to tell a controllable device
+# from a sensor-only one (e.g. a shared WS90 weather station). ``climate``
+# is control too, but the cloud path never exposes it, so it is only
+# considered on the native side.
+CONTROL_DOMAINS = frozenset({"switch", "light", "cover"})
+NATIVE_CONTROL_DOMAINS = CONTROL_DOMAINS | frozenset({"climate"})
+
 # ── Persistent storage keys ────────────────────────────────────────
 
 # Map of Shelly device_id → hostname, kept in entry.data so platforms can

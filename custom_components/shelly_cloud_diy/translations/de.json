@@ -95,6 +95,42 @@
           "description": "Optional — Import auf ein einzelnes EM-Gerät beschränken. Leer lassen, um alle EM-Geräte zu importieren."
         }
       }
+    },
+    "replace_device": {
+      "name": "Gerät ersetzen",
+      "description": "Überträgt die Home-Assistant-Identität eines defekten Shelly (Entity-IDs, das HA-Gerät, Name, Bereich, Verlauf sowie alle Automations-/Dashboard-Bezüge) auf einen neuen Shelly desselben Modells — so muss Home Assistant nach einem Hardware-Tausch nicht neu konfiguriert werden. Aktiviere zuerst das neue Gerät.",
+      "fields": {
+        "old_device": {
+          "name": "Altes (ersetztes) Gerät",
+          "description": "Der Shelly, der defekt ist oder entfernt wurde."
+        },
+        "new_device": {
+          "name": "Neues Gerät",
+          "description": "Der neue Shelly, der übernehmen soll. Vorher aktivieren."
+        },
+        "dry_run": {
+          "name": "Trockenlauf",
+          "description": "Nur anzeigen, was geändert würde, ohne es anzuwenden."
+        },
+        "force": {
+          "name": "Erzwingen (Modell-Abweichung ignorieren)",
+          "description": "Auch dann fortfahren, wenn die beiden Geräte unterschiedliche Modelle melden. Nur nutzen, wenn das Kanal-Layout übereinstimmt."
+        }
+      }
+    },
+    "fleet_map": {
+      "name": "Flottenübersicht",
+      "description": "Schreibgeschütztes Overlay: ordnet jedes Cloud-Gerät per MAC seinem lokalen (nativen Shelly) Zwilling zu, schlägt Namen vor und markiert jedes Gerät, dessen Steuerung über die Cloud läuft. Schreibt einen Bericht in deine Benachrichtigungen. Jederzeit sicher ausführbar — es ändert nichts, sofern du es nicht ausdrücklich aktivierst.",
+      "fields": {
+        "dry_run": {
+          "name": "Trockenlauf",
+          "description": "Nur den Bericht anzeigen, ohne Namensvorschläge anzuwenden. Standardmäßig aktiv."
+        },
+        "apply_native_name_suggestions": {
+          "name": "Native Namensvorschläge anwenden",
+          "description": "Den Cloud-Alias zusätzlich auf das zugeordnete lokale (native Shelly) Gerät übertragen. Schreibt nur den technischen Namen, niemals einen selbst vergebenen Namen. Erfordert das Deaktivieren des Trockenlaufs. Standardmäßig aus."
+        }
+      }
     }
   }
 }

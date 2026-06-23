@@ -15,6 +15,7 @@ move to Milestone 2 when OAuth + WebSocket land.
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -35,7 +36,9 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ShellyCloudCoordinator
+from .services.fleet_map import async_handle_fleet_map
 from .services.historical import HistoricalDataService
+from .services.replace_device import async_handle_replace_device
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,8 +140,11 @@ async def _register_services(
 ) -> None:
     """Register integration-wide services.
 
-    Only ``download_and_convert_history`` is registered here — it operates
-    against the local gateway URL and is unchanged across the pivot.
+    ``download_and_convert_history`` operates against the local gateway URL and
+    is unchanged across the pivot. ``replace_device`` transplants a dead
+    Shelly's HA identity onto a new unit of the same model; it is account-
+    agnostic (it resolves the config entry from the selected devices), so it is
+    registered once with a module-level handler bound to ``hass``.
     """
     if not hass.services.has_service(DOMAIN, "download_and_convert_history"):
         hass.services.async_register(
@@ -153,6 +159,38 @@ async def _register_services(
             ),
         )
         _LOGGER.info("Registered service: shelly_cloud_diy.download_and_convert_history")
+
+    if not hass.services.has_service(DOMAIN, "replace_device"):
+        hass.services.async_register(
+            DOMAIN,
+            "replace_device",
+            partial(async_handle_replace_device, hass),
+            schema=vol.Schema(
+                {
+                    vol.Required("old_device"): cv.string,
+                    vol.Required("new_device"): cv.string,
+                    vol.Optional("dry_run", default=False): cv.boolean,
+                    vol.Optional("force", default=False): cv.boolean,
+                }
+            ),
+        )
+        _LOGGER.info("Registered service: shelly_cloud_diy.replace_device")
+
+    if not hass.services.has_service(DOMAIN, "fleet_map"):
+        hass.services.async_register(
+            DOMAIN,
+            "fleet_map",
+            partial(async_handle_fleet_map, hass),
+            schema=vol.Schema(
+                {
+                    vol.Optional("dry_run", default=True): cv.boolean,
+                    vol.Optional(
+                        "apply_native_name_suggestions", default=False
+                    ): cv.boolean,
+                }
+            ),
+        )
+        _LOGGER.info("Registered service: shelly_cloud_diy.fleet_map")
 
 
 # ── Device removal & ghost-entity purge ─────────────────────────────────

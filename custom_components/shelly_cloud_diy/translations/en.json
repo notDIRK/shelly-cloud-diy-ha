@@ -95,6 +95,42 @@
           "description": "Optional — restrict the import to a single EM device. All EM devices are imported if omitted."
         }
       }
+    },
+    "replace_device": {
+      "name": "Replace device",
+      "description": "Transplant a dead Shelly's Home Assistant identity (entity IDs, the HA device, name, area, history and every automation/dashboard reference) onto a new Shelly of the same model, so you don't have to reconfigure Home Assistant after a hardware swap. Enable the new device first.",
+      "fields": {
+        "old_device": {
+          "name": "Old (replaced) device",
+          "description": "The Shelly device that broke or was removed."
+        },
+        "new_device": {
+          "name": "New device",
+          "description": "The new Shelly that should take over. Enable it first."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Only show what would change, without applying it."
+        },
+        "force": {
+          "name": "Force (ignore model mismatch)",
+          "description": "Proceed even if the two devices report different models. Only use this if the channel layout matches."
+        }
+      }
+    },
+    "fleet_map": {
+      "name": "Fleet map",
+      "description": "Read-only overlay: matches every cloud device to its local (native Shelly) twin by MAC, suggests names, and flags any device whose control runs over the cloud. Writes a report to your notifications. Safe to run anytime — it changes nothing unless you explicitly opt in.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Only show the report, without applying any native name suggestions. On by default."
+        },
+        "apply_native_name_suggestions": {
+          "name": "Apply native name suggestions",
+          "description": "Also copy each cloud alias onto its matched local (native Shelly) device. Only writes the technical name, never a name you set yourself. Requires turning Dry run off. Off by default."
+        }
+      }
     }
   }
 }
