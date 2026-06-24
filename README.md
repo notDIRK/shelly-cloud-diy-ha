@@ -73,7 +73,9 @@ Assistant as ordinary sensor entities (temperature, wind, rain, UV, …), ready 
 drop onto a dashboard or drive automations — without ever touching the owner's
 account beyond the share they granted you.
 
-<!-- screenshot: shared weather station -->
+<img src="https://raw.githubusercontent.com/notDIRK/shelly-cloud-diy-ha/main/images/shared-weather-station-ws90.png" alt="Home Assistant dashboard of a shared ECOWITT WS90 weather station: temperature, feels-like and humidity gauges, wind compass, 24h temperature and pressure graph, station battery and voltage, hourly and 5-day forecast, UV and rain sensors" width="760">
+
+*A shared ECOWITT WS90 weather station — paired to someone else's Shelly account — surfaced as native Home Assistant sensor entities via the Cloud Control API.*
 
 ### How it compares
 

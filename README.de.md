@@ -77,7 +77,9 @@ auf (Temperatur, Wind, Regen, UV, …), bereit fürs Dashboard oder für
 Automationen — ohne dass du je mehr vom Account des Besitzers anfasst als die
 Freigabe, die er dir erteilt hat.
 
-<!-- screenshot: shared weather station -->
+<img src="https://raw.githubusercontent.com/notDIRK/shelly-cloud-diy-ha/main/images/shared-weather-station-ws90.png" alt="Home-Assistant-Dashboard einer geteilten ECOWITT-WS90-Wetterstation: Temperatur-, Gefühlt-wie- und Luftfeuchte-Anzeigen, Windkompass, 24-h-Temperatur- und Druckverlauf, Stationsbatterie und -spannung, Stunden- und 5-Tage-Vorhersage, UV- und Regensensoren" width="760">
+
+*Eine geteilte ECOWITT-WS90-Wetterstation — verknüpft mit dem Shelly-Account einer anderen Person — erscheint über die Cloud Control API als native Home-Assistant-Sensor-Entities.*
 
 ### Vergleich
 
