@@ -248,8 +248,11 @@ try it, but don't depend on it yet.
   IDs, device, name, area, long-term history, and every automation / script /
   scene / dashboard reference) onto a **new unit of the same model**, so you
   don't reconfigure Home Assistant after a hardware swap. **Cloud devices are
-  supported now;** native local Shelly support and an **upstream Home Assistant
-  Core contribution** (modelled on the ESPHome replacement flow) are planned next.
+  supported now.** The **upstream Home Assistant Core contribution** — an
+  ESPHome-style device-replacement repair for the *native* Shelly integration —
+  has been **submitted for review**:
+  [home-assistant/core#174581](https://github.com/home-assistant/core/pull/174581).
+  Native local support in this integration is planned next.
 - **On-device config clone** — *planned.* Clone a Shelly's on-device schedules,
   scripts, and inputs onto its replacement over the LAN, for resilience that
   survives both an internet and a Home Assistant outage.

@@ -258,9 +258,12 @@ Noch nicht fertig — gern ausprobieren, aber noch nicht darauf verlassen.
   Shellys (Entitäts-IDs, Gerät, Name, Bereich, Langzeit-Verlauf und jeden Bezug
   aus Automationen / Skripten / Szenen / Dashboards) auf ein **neues Gerät
   desselben Modells**, sodass du Home Assistant nach einem Hardware-Tausch nicht
-  neu konfigurieren musst. **Cloud-Geräte werden schon heute unterstützt;** der
-  native lokale Shelly-Support und ein **Upstream-Beitrag an Home Assistant
-  Core** (nach dem Vorbild des ESPHome-Tausch-Flows) sind als Nächstes geplant.
+  neu konfigurieren musst. **Cloud-Geräte werden schon heute unterstützt.** Der
+  **Upstream-Beitrag an Home Assistant Core** — ein Geräte-Tausch-Repair nach dem
+  Vorbild von ESPHome für die *native* Shelly-Integration — wurde **zur Review
+  eingereicht**:
+  [home-assistant/core#174581](https://github.com/home-assistant/core/pull/174581).
+  Nativer lokaler Support in dieser Integration ist als Nächstes geplant.
 - **On-Device-Config-Klon** — *geplant.* Klont die On-Device-Zeitpläne, -Skripte
   und -Eingänge eines Shellys über das LAN auf den Ersatz, für Resilienz, die
   einen Internet- und einen Home-Assistant-Ausfall übersteht.

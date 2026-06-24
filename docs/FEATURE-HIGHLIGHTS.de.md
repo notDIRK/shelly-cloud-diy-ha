@@ -65,7 +65,7 @@ bietet.
 
 ---
 
-## Phase 2 — Geräte-Tausch mit einem Klick  ⏳ geplant (Cloud-Teil gebaut)
+## Phase 2 — Geräte-Tausch mit einem Klick  🔄 in Arbeit (Cloud ausgeliefert, native upstream zur Review)
 
 **Slogan:** *Defekten Shelly gegen einen neuen tauschen — alle Automationen,
 Dashboards und der komplette Verlauf bleiben. Kein Neu-Verdrahten.*
@@ -91,9 +91,10 @@ Cloud-eingebundene **und** lokal-eingebundene Shellys.
   der Cloud, selbst wenn die Hardware schon weg und lokal nicht mehr lesbar ist.
 - **Trockenlauf-Vorschau:** genau sehen, was sich ändert, bevor etwas angefasst
   wird.
-- **Beitrag zurück:** die native Variante wird **Upstream an Home Assistant Core**
-  vorgeschlagen (nach dem Vorbild des ESPHome-Tausch-Repair-Flows), damit alle
-  HA-Nutzer profitieren, nicht nur unsere.
+- **Beitrag zurück:** die native Variante wurde **Upstream an Home Assistant Core
+  eingereicht** ([core#174581](https://github.com/home-assistant/core/pull/174581),
+  nach dem Vorbild des ESPHome-Tausch-Repair-Flows), damit alle HA-Nutzer
+  profitieren, nicht nur unsere.
 
 ---
 

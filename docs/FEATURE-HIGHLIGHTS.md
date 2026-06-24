@@ -62,7 +62,7 @@ by its MAC, and adding a **resilience check** nobody else offers.
 
 ---
 
-## Phase 2 — One‑click device replacement  ⏳ planned (cloud side built)
+## Phase 2 — One‑click device replacement  🔄 in progress (cloud shipped, native upstreamed for review)
 
 **Tagline:** *Replace a broken Shelly with a new one — keep every automation,
 dashboard, and the full history. No re‑wiring.*
@@ -87,9 +87,10 @@ locally‑integrated Shellys.
 - **Cloud as a safety net:** pulls the dead device's identity and name from the
   cloud even when the hardware is already gone and can no longer be read locally.
 - **Dry‑run preview:** see exactly what will change before anything is touched.
-- **Giving back:** the native variant is being proposed **upstream to Home
-  Assistant Core** (modelled on the ESPHome replacement repair flow) so every HA
-  user benefits, not just ours.
+- **Giving back:** the native variant has been **submitted upstream to Home
+  Assistant Core** ([core#174581](https://github.com/home-assistant/core/pull/174581),
+  modelled on the ESPHome replacement repair flow) so every HA user benefits, not
+  just ours.
 
 ---
 
