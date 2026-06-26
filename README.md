@@ -162,6 +162,21 @@ migration:
   tested by Home Assistant"* is normal for any `custom_components/` integration
   and is not an error.
 
+### Updating
+
+When HACS shows a new version:
+
+1. In **HACS**, open **Shelly Cloud DIY** → three-dot menu → **Redownload** and
+   pick the latest version.
+2. **Restart Home Assistant** (Settings → System → Restart).
+
+The restart is the easy-to-forget step. New entities from a release — for
+example a sensor for a newly supported device — **only appear after the
+restart**, so a missing entity right after updating is almost always "HACS
+updated, but Home Assistant has not been restarted yet" rather than a bug. If an
+entity is still missing after the restart, reloading the integration (Settings →
+Devices & Services → Shelly Cloud DIY → ⋮ → Reload) forces a fresh cloud poll.
+
 ---
 
 ## Getting your credentials
