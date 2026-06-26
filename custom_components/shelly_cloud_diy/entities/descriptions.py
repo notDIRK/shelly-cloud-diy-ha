@@ -375,6 +375,18 @@ RPC_SENSORS: Final[dict[str, RpcSensorDescription]] = {
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
     ),
+    # Voltmeter — analog voltage input on the Shelly Plus Uni and the
+    # Plus/Pro Add-on. Reported as a ``voltmeter:<id>`` component whose
+    # ``voltage`` field carries the measured potential in volts.
+    "voltmeter": RpcSensorDescription(
+        key="voltmeter",
+        sub_key="voltage",
+        name="Voltmeter",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
     # Humidity sensor
     "humidity": RpcSensorDescription(
         key="humidity",
@@ -649,5 +661,13 @@ BLE_BINARY_SENSORS: Final[dict[str, BleBinarySensorDescription]] = {
         name="Moisture Alarm",
         value_field="value",
         device_class=BinarySensorDeviceClass.MOISTURE,
+    ),
+    # Shelly BLU Motion (SBMO-003Z), bridged via a BLU gateway. Reports a
+    # ``motion:0`` key with a boolean ``motion`` field. (Its illuminance
+    # and battery readings are already covered by BLE_SENSORS.)
+    "motion": BleBinarySensorDescription(
+        name="Motion",
+        value_field="motion",
+        device_class=BinarySensorDeviceClass.MOTION,
     ),
 }

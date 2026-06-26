@@ -228,6 +228,23 @@ def _create_rpc_sensors(
                         coordinator, device_id, desc, idx, key, "tC"
                     ))
 
+    # Voltmeter — analog voltage input (e.g. Shelly Plus Uni, Plus Add-on).
+    # The component id is in the add-on range (100+) but each device has a
+    # single analog input, so name it cleanly without a channel suffix.
+    for key in status:
+        if match := re.match(r"voltmeter:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if isinstance(data, dict) and "voltage" in data:
+                desc = RPC_SENSORS.get("voltmeter")
+                if desc:
+                    uid = f"{device_id}_voltmeter_{idx}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, 0, key, "voltage"
+                        ))
+
     return entities
 
 
