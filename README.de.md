@@ -304,6 +304,19 @@ es kann.
 
 ---
 
+## Dem Projekt helfen
+
+Wenn dir diese Integration nützt, ist das Hilfreichste völlig kostenlos:
+**aktiviere Home Assistant Analytics** (Einstellungen → System → *Analytics*, oder
+[analytics.home-assistant.io](https://analytics.home-assistant.io)). Es ist anonym
+und Opt-in — und genau darüber werden Custom-Integrationen gezählt. Sobald genug
+Instanzen sie melden, erscheint Shelly Cloud DIY in der öffentlichen
+Installations-Statistik. Diese Zahlen sind das Signal, dass sich die Pflege lohnt
+und das Projekt weiter ins Ökosystem gehört. Ein ⭐ auf dem Repo und ein klarer
+Bug-Report oder Feature-Wunsch helfen genauso.
+
+---
+
 ## Lizenz
 
 MIT — siehe [`LICENSE`](LICENSE).
