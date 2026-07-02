@@ -293,14 +293,18 @@ of the way of what it can.
 
 ## Help the project
 
-If this integration is useful to you, the single most helpful thing you can do
-costs nothing: **enable Home Assistant Analytics** (Settings → System →
-*Analytics*, or [analytics.home-assistant.io](https://analytics.home-assistant.io)).
-It is anonymous and opt-in, and it is how custom integrations get counted — once
-enough instances report it, Shelly Cloud DIY appears in the public install
-statistics. Those numbers are what signal that the project is worth maintaining
-and worth bringing further into the ecosystem. A ⭐ on the repo and a clear bug
-report or feature request help just as much.
+The most direct help costs nothing: a ⭐ on the repo, and a clear bug report or
+feature request when something is off.
+
+Enabling **Home Assistant Analytics** (Settings → System → *Analytics*) is also
+worthwhile — it is anonymous and opt-in, and it helps the whole HA ecosystem.
+One honest caveat: Home Assistant no longer lists *newly added* custom
+integrations in its public per-integration statistics (a policy change in HA
+2026.3 — the [brands](https://github.com/home-assistant/brands) registry stopped
+accepting new custom integrations, and the analytics site only counts domains in
+that registry). So enabling analytics won't surface Shelly Cloud DIY by name — but
+it still helps the project it lives in, and a ⭐ remains the clearest signal that
+this integration is worth maintaining.
 
 ---
 
