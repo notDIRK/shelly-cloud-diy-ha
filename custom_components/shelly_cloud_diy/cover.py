@@ -166,16 +166,13 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
         return False
 
     async def async_open_cover(self, **kwargs: Any) -> None:
-        """Open the cover.
-        
-        NOTE: When using Shelly Cloud Integrator API, even Gen2 devices
-        use CommandRequest (cmd: "roller") format, not JrpcRequest.
-        """
+        """Open the cover."""
         await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="roller",
             channel=self._channel,
             action="open",
+            gen2=self._is_gen2,
         )
 
     async def async_close_cover(self, **kwargs: Any) -> None:
@@ -185,6 +182,7 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
             cmd="roller",
             channel=self._channel,
             action="close",
+            gen2=self._is_gen2,
         )
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
@@ -194,6 +192,7 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
             cmd="roller",
             channel=self._channel,
             action="stop",
+            gen2=self._is_gen2,
         )
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
@@ -201,11 +200,10 @@ class ShellyCover(ShellyBaseEntity, CoverEntity):
         position = kwargs.get("position")
         if position is None:
             return
-        # API uses dedicated "roller_to_pos" command for positioning
         await self.coordinator.send_command(
             device_id=self._device_id,
-            cmd="roller_to_pos",
+            cmd="roller",
             channel=self._channel,
-            action="to_pos",
-            params={"pos": position},
+            action=int(position),
+            gen2=self._is_gen2,
         )

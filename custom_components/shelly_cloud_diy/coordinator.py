@@ -306,6 +306,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         cmd: str,
         channel: int = 0,
         action: Any = "toggle",
+        gen2: bool = False,
     ) -> dict[str, Any] | None:
         """Send a device command and return a response the platforms expect.
 
@@ -347,11 +348,11 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             elif cmd == "roller":
                 if isinstance(action, int):
                     data = await self._api.roller_control(
-                        device_id, channel=channel, go_to_pos=action
+                        device_id, channel=channel, go_to_pos=action, gen2=gen2
                     )
                 elif isinstance(action, str):
                     data = await self._api.roller_control(
-                        device_id, channel=channel, direction=action
+                        device_id, channel=channel, direction=action, gen2=gen2
                     )
                 else:
                     _LOGGER.error("Invalid roller action: %r", action)

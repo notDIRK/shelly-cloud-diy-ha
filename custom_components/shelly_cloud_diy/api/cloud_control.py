@@ -152,12 +152,18 @@ class ShellyCloudControl:
 
         return data
 
-    async def _post_json(self, path: str, payload: dict[str, Any]) -> Any:
+    async def _post_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         """POST a JSON request and return the parsed JSON body.
 
-        Used by v2 endpoints, which take a JSON body (including ``auth_key``)
-        and return a JSON array or object directly — not the v1
-        ``{"isok": …, "data": …}`` envelope.
+        Used by v2 endpoints, which take a JSON body and return a JSON array
+        or object directly — not the v1 ``{"isok": …, "data": …}`` envelope.
+        Some v2 endpoints expect ``auth_key`` in the query string rather than
+        the body; pass it via ``params`` in that case.
 
         Retries once on HTTP 429 after a 1.2 s sleep (same pattern as
         :meth:`_post`); any further 429 surfaces as
@@ -169,7 +175,7 @@ class ShellyCloudControl:
         for attempt in range(2):
             try:
                 async with self._session.post(
-                    url, json=payload, timeout=self._timeout
+                    url, json=payload, params=params, timeout=self._timeout
                 ) as response:
                     if response.status in (401, 403):
                         raise ShellyCloudAuthError(
@@ -347,6 +353,7 @@ class ShellyCloudControl:
         channel: int = 0,
         direction: str | None = None,
         go_to_pos: int | None = None,
+        gen2: bool = False,
     ) -> dict[str, Any]:
         """Control a roller / cover channel.
 
@@ -354,11 +361,29 @@ class ShellyCloudControl:
             direction: ``"open"``, ``"close"``, or ``"stop"``.
             go_to_pos: Target position 0..100. Mutually exclusive with
                 ``direction``; Shelly accepts whichever one is present.
+            gen2: Route through the v2 cover endpoint. The legacy Gen1 roller
+                endpoint has no working per-channel selector, so on multi-cover
+                Gen2 devices (e.g. Shelly Pro Dual Cover PM) it always drives
+                cover 0. The v2 endpoint takes a real ``channel`` field.
         """
         if direction is not None and direction not in ("open", "close", "stop"):
             raise ValueError(f"Invalid roller direction: {direction!r}")
         if go_to_pos is not None and not 0 <= go_to_pos <= 100:
             raise ValueError("go_to_pos must be 0..100")
+
+        if gen2:
+            # v2 cover endpoint: auth_key goes in the query string, and a
+            # single ``position`` field carries either the direction string
+            # or the numeric target position.
+            position: str | int | None = (
+                direction if direction is not None else go_to_pos
+            )
+            data = await self._post_json(
+                "/v2/devices/api/set/cover",
+                {"id": device_id, "channel": channel, "position": position},
+                params={"auth_key": self._auth_key},
+            )
+            return data if isinstance(data, dict) else {}
 
         body = await self._post(
             "/device/relay/roller/control",
