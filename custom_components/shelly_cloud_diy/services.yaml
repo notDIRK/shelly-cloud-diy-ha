@@ -92,3 +92,52 @@ fleet_map:
       default: false
       selector:
         boolean:
+
+# Scope note (for maintainers/reviewers — deliberately NOT in the user-facing
+# description below): this is an account-vs-registry reconciliation Home
+# Assistant has no built-in for. It inspects and touches strictly this
+# integration's own devices (those keyed by its cloud device id), decides
+# absence only from the account's alias-independent inventory (never from a name
+# map, which would risk deleting a never-renamed device), refuses to act when
+# that inventory looks incomplete, and never removes anything unless the user
+# explicitly opts in after the previewed, non-auto-reversible report.
+detect_orphans:
+  name: Find Shelly devices no longer in your account
+  description: >-
+    Reconciles the Shelly devices this integration created against your live
+    Shelly account inventory and reports any whose hardware is no longer in the
+    account (sold, factory-reset, or deleted in the Shelly app). Inform-only by
+    default: it writes a report to your notifications and changes nothing.
+    Removal is strictly opt-in — turn Dry run off and Remove on to detach the
+    listed devices; it is previewed first and is not automatically reversible.
+  fields:
+    dry_run:
+      name: Dry run
+      description: >-
+        Only show the report, without removing anything. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+    remove:
+      name: Remove listed devices
+      description: >-
+        Detach the devices found to be no longer in your account, together with
+        their entities. Requires turning Dry run off. This does not come back
+        automatically — re-add the hardware in the integration options if it
+        returns. Off by default.
+      required: false
+      default: false
+      selector:
+        boolean:
+    devices:
+      name: Limit to these devices
+      description: >-
+        Optional. Restrict removal to the devices you pick here — only those
+        that are also independently found to be no longer in your account are
+        removed. Leave empty to consider every eligible device.
+      required: false
+      selector:
+        device:
+          integration: shelly_cloud_diy
+          multiple: true

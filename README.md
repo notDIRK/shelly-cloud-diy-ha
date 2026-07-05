@@ -106,6 +106,7 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 | 🎨 **Brand icon** | Ships its own brand icon (HA 2026.3+). | ✅ shipped |
 | 🗺️ **Fleet-Map** | Read-only overlay matching cloud devices to their local twins by MAC. | 🧪 beta |
 | 🔁 **Replace device** | Transplant a dead Shelly's HA identity onto a new unit of the same model. | 🧪 beta |
+| 🧹 **Account cleanup** | Find (and opt-in remove) HA devices whose Shelly hardware is no longer in your account — sold, reset, or deleted. | 🧪 beta |
 
 It runs **alongside** Shelly Cloud and the Shelly app — it does not take over or
 lock out other clients — and **does not require** Home Assistant to be exposed to
@@ -268,6 +269,13 @@ try it, but don't depend on it yet.
   has been **submitted for review**:
   [home-assistant/core#174581](https://github.com/home-assistant/core/pull/174581).
   Native local support in this integration is planned next.
+- **Account cleanup** — reconcile the devices this integration created against
+  your live Shelly account and report any whose hardware is **no longer in the
+  account** (sold, factory-reset, or deleted in the app). *Inform-only by
+  default;* removal is strictly opt-in, previewed, and honestly disclosed as not
+  automatically reversible. Safe by design: it decides absence only from your
+  account's **full device inventory** — never a name list — and refuses to act
+  when that inventory looks incomplete.
 - **On-device config clone** — *planned.* Clone a Shelly's on-device schedules,
   scripts, and inputs onto its replacement over the LAN, for resilience that
   survives both an internet and a Home Assistant outage.

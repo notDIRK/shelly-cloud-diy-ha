@@ -111,6 +111,7 @@ Lücke schließt dieses Projekt.
 | 🎨 **Brand-Icon** | Bringt ihr eigenes Brand-Icon mit (HA 2026.3+). | ✅ ausgeliefert |
 | 🗺️ **Fleet-Map** | Read-only-Overlay, das Cloud-Geräte über die MAC ihren lokalen Twins zuordnet. | 🧪 Beta |
 | 🔁 **Geräte-Tausch** | Überträgt die HA-Identität eines defekten Shellys auf ein neues Gerät desselben Modells. | 🧪 Beta |
+| 🧹 **Konto-Aufräumen** | Findet (und entfernt optional) HA-Geräte, deren Shelly-Hardware nicht mehr in deinem Konto ist — verkauft, zurückgesetzt oder gelöscht. | 🧪 Beta |
 
 Sie läuft **parallel** zur Shelly Cloud und zur Shelly-App — sie übernimmt oder
 blockiert keine anderen Clients — und **erfordert nicht**, dass Home Assistant im
@@ -280,6 +281,14 @@ Noch nicht fertig — gern ausprobieren, aber noch nicht darauf verlassen.
   eingereicht**:
   [home-assistant/core#174581](https://github.com/home-assistant/core/pull/174581).
   Nativer lokaler Support in dieser Integration ist als Nächstes geplant.
+- **Konto-Aufräumen** — gleicht die von dieser Integration angelegten Geräte mit
+  deinem aktuellen Shelly-Konto ab und meldet jene, deren Hardware **nicht mehr
+  im Konto** ist (verkauft, auf Werkseinstellungen zurückgesetzt oder in der App
+  gelöscht). *Standardmäßig nur zur Information;* das Entfernen ist ausdrücklich
+  optional, wird vorher angezeigt und ehrlich als nicht automatisch umkehrbar
+  ausgewiesen. Sicher konzipiert: Abwesenheit wird nur aus dem **vollständigen
+  Gerätebestand** deines Kontos entschieden — nie aus einer Namensliste — und bei
+  unvollständig wirkendem Bestand wird nichts getan.
 - **On-Device-Config-Klon** — *geplant.* Klont die On-Device-Zeitpläne, -Skripte
   und -Eingänge eines Shellys über das LAN auf den Ersatz, für Resilienz, die
   einen Internet- und einen Home-Assistant-Ausfall übersteht.

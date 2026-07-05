@@ -131,6 +131,24 @@
           "description": "Also copy each cloud alias onto its matched local (native Shelly) device. Only writes the technical name, never a name you set yourself. Requires turning Dry run off. Off by default."
         }
       }
+    },
+    "detect_orphans": {
+      "name": "Find Shelly devices no longer in your account",
+      "description": "Reconciles the Shelly devices this integration created against your live Shelly account inventory and reports any whose hardware is no longer in the account (sold, factory-reset, or deleted in the Shelly app). Inform-only by default — it writes a report to your notifications and changes nothing. Removal is strictly opt-in: turn Dry run off and Remove on to detach the listed devices; it is previewed first and is not automatically reversible.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Only show the report, without removing anything. On by default."
+        },
+        "remove": {
+          "name": "Remove listed devices",
+          "description": "Detach the devices found to be no longer in your account, together with their entities. Requires turning Dry run off. This does not come back automatically — re-add the hardware in the integration options if it returns. Off by default."
+        },
+        "devices": {
+          "name": "Limit to these devices",
+          "description": "Optional. Restrict removal to the devices you pick here — only those also independently found to be no longer in your account are removed. Leave empty to consider every eligible device."
+        }
+      }
     }
   }
 }

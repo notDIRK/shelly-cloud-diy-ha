@@ -131,6 +131,24 @@
           "description": "Den Cloud-Alias zusätzlich auf das zugeordnete lokale (native Shelly) Gerät übertragen. Schreibt nur den technischen Namen, niemals einen selbst vergebenen Namen. Erfordert das Deaktivieren des Trockenlaufs. Standardmäßig aus."
         }
       }
+    },
+    "detect_orphans": {
+      "name": "Shelly-Geräte finden, die nicht mehr in deinem Konto sind",
+      "description": "Gleicht die von dieser Integration angelegten Shelly-Geräte mit dem aktuellen Bestand deines Shelly-Kontos ab und meldet jene, deren Hardware nicht mehr im Konto ist (verkauft, auf Werkseinstellungen zurückgesetzt oder in der Shelly-App gelöscht). Standardmäßig nur zur Information — es schreibt einen Bericht in deine Benachrichtigungen und ändert nichts. Das Entfernen ist ausdrücklich optional: Trockenlauf aus und Entfernen ein schalten, um die aufgeführten Geräte zu lösen; es wird vorher angezeigt und ist nicht automatisch umkehrbar.",
+      "fields": {
+        "dry_run": {
+          "name": "Trockenlauf",
+          "description": "Nur den Bericht anzeigen, ohne etwas zu entfernen. Standardmäßig aktiv."
+        },
+        "remove": {
+          "name": "Aufgeführte Geräte entfernen",
+          "description": "Die Geräte lösen, die nicht mehr in deinem Konto gefunden wurden, samt ihrer Entitäten. Erfordert das Deaktivieren des Trockenlaufs. Das kommt nicht automatisch zurück — füge die Hardware in den Integrationsoptionen wieder hinzu, falls sie zurückkehrt. Standardmäßig aus."
+        },
+        "devices": {
+          "name": "Auf diese Geräte beschränken",
+          "description": "Optional. Das Entfernen auf die hier gewählten Geräte beschränken — entfernt werden nur solche, die auch unabhängig als nicht mehr in deinem Konto erkannt wurden. Leer lassen, um alle infrage kommenden Geräte zu berücksichtigen."
+        }
+      }
     }
   }
 }

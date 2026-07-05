@@ -66,6 +66,15 @@ NATIVE_SHELLY_DOMAIN = "shelly"
 CONTROL_DOMAINS = frozenset({"switch", "light", "cover"})
 NATIVE_CONTROL_DOMAINS = CONTROL_DOMAINS | frozenset({"climate"})
 
+# ── "No longer in account" detector (detect_orphans) ───────────────
+#
+# Mass-absence guard: if more than ``max(ORPHAN_FLOOR_ABS,
+# ORPHAN_FLOOR_FRAC * managed_devices)`` of our managed devices look absent
+# from the account inventory in a single run, we treat the run as a likely
+# transient account/API glitch and refuse to act (report-only, degraded).
+ORPHAN_FLOOR_ABS = 5
+ORPHAN_FLOOR_FRAC = 0.25
+
 # ── Persistent storage keys ────────────────────────────────────────
 
 # Map of Shelly device_id → hostname, kept in entry.data so platforms can

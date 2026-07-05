@@ -38,6 +38,7 @@ from .const import (
 from .coordinator import ShellyCloudCoordinator
 from .services.fleet_map import async_handle_fleet_map
 from .services.historical import HistoricalDataService
+from .services.orphans import async_handle_detect_orphans
 from .services.replace_device import async_handle_replace_device
 
 _LOGGER = logging.getLogger(__name__)
@@ -191,6 +192,21 @@ async def _register_services(
             ),
         )
         _LOGGER.info("Registered service: shelly_cloud_diy.fleet_map")
+
+    if not hass.services.has_service(DOMAIN, "detect_orphans"):
+        hass.services.async_register(
+            DOMAIN,
+            "detect_orphans",
+            partial(async_handle_detect_orphans, hass),
+            schema=vol.Schema(
+                {
+                    vol.Optional("dry_run", default=True): cv.boolean,
+                    vol.Optional("remove", default=False): cv.boolean,
+                    vol.Optional("devices"): vol.All(cv.ensure_list, [cv.string]),
+                }
+            ),
+        )
+        _LOGGER.info("Registered service: shelly_cloud_diy.detect_orphans")
 
 
 # ── Device removal & ghost-entity purge ─────────────────────────────────

@@ -84,3 +84,6 @@ secrets.yaml
 
 # GSD planning scratch space (kept local; consolidated output lives in docs/CODEBASE_MAP.md)
 .planning/
+# Local-only scratch: ad-hoc pure-function tests, MCP browser artifacts
+scratchpad/
+.playwright-mcp/

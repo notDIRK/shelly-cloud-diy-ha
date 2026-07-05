@@ -24,12 +24,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 if TYPE_CHECKING:
     from aiohttp import ClientSession
+
+
+@dataclass(frozen=True)
+class AccountInventory:
+    """The alias-independent device inventory of one Shelly account.
+
+    ``ids`` are the RAW keys of ``data.devices`` (unfolded — transport-faithful,
+    so a caller can fold them itself). Unlike :meth:`ShellyCloudControl.get_device_names`,
+    which omits devices that were never renamed in the app, this carries EVERY
+    device id the account lists — the only trustworthy basis for deciding that a
+    device is no longer in the account.
+    """
+
+    ids: frozenset[str]
+    raw_count: int
+    isok: bool
+    well_formed: bool
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -281,6 +299,50 @@ class ShellyCloudControl:
             if isinstance(name, str) and name.strip():
                 names[did] = name.strip()
         return names
+
+    async def get_account_inventory(self) -> AccountInventory:
+        """Fetch the alias-independent device inventory of the account.
+
+        POSTs to the same v1 ``/interface/device/list`` endpoint as
+        :meth:`get_device_names` (form-encoded, shares the 1 req/s budget), but
+        returns EVERY device id in ``data.devices`` — renamed or not — rather
+        than only the aliased subset. This is the authoritative membership set:
+        a device id absent from it is genuinely no longer on the account, which
+        is exactly the judgement :func:`services.orphans` must make before it
+        can ever detach a device. Using the alias map instead would silently
+        omit never-renamed devices and risk deleting a live one.
+
+        The response shape is::
+
+            {"isok": true, "data": {"devices": {
+                "<device_id>": {"id": "<device_id>", "name": "<alias>", …},
+                …
+            }}}
+
+        Never raises for a structurally-odd payload — it degrades to an
+        ``isok`` / ``well_formed`` verdict the caller uses to decide whether the
+        inventory is trustworthy enough to act on (see ``orphans_core.assess_trust``).
+
+        Returns:
+            An :class:`AccountInventory` with the RAW (unfolded) ids, their
+            count, the transport ``isok`` flag, and whether the device map was
+            present and non-empty.
+        """
+        body = await self._post("/interface/device/list")
+        data = body.get("data")
+        devices = data.get("devices") if isinstance(data, dict) else None
+        well_formed = isinstance(devices, dict) and len(devices) > 0
+        ids = (
+            frozenset(k for k in devices if isinstance(k, str))
+            if well_formed
+            else frozenset()
+        )
+        return AccountInventory(
+            ids=ids,
+            raw_count=len(ids),
+            isok=(body.get("isok") is not False),
+            well_formed=well_formed,
+        )
 
     # ── Command endpoints ──────────────────────────────────────────────
 
