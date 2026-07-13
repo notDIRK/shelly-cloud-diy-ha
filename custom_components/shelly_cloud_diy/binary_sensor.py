@@ -182,6 +182,27 @@ def _create_rpc_sensors(
                     coordinator, device_id, desc, 0, "cloud", "connected"
                 ))
 
+    # External power supply presence (battery devices)
+    for key in status:
+        if match := re.match(r"devicepower:(\d+)", key):
+            idx = int(match.group(1))
+            component = status[key]
+            external = component.get("external") if isinstance(component, dict) else None
+            if isinstance(external, dict) and "present" in external:
+                desc = RPC_BINARY_SENSORS.get("external_power")
+                if desc:
+                    uid = f"{device_id}_external_power_{idx}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcBinarySensor(
+                            coordinator,
+                            device_id,
+                            desc,
+                            idx,
+                            key,
+                            "external",
+                        ))
+
     return entities
 
 
@@ -374,6 +395,16 @@ class RpcBinarySensor(ShellyBaseEntity, BinarySensorEntity):
 
         value = component.get(self._attr_key)
         if value is None:
+            return None
+
+        # ``devicepower:<id>.external`` uses a nested object like
+        # {"present": bool}; this keeps the generic RPC entity reusable.
+        if isinstance(value, dict) and "present" in value:
+            present = value.get("present")
+            if isinstance(present, bool):
+                return present
+            if isinstance(present, (int, float)):
+                return present > 0
             return None
 
         if isinstance(value, bool):

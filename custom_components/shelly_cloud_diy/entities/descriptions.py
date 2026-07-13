@@ -533,6 +533,13 @@ RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    "external_power": RpcBinarySensorDescription(
+        key="devicepower",
+        sub_key="external",
+        name="External Power",
+        device_class=BinarySensorDeviceClass.POWER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 }
 
 

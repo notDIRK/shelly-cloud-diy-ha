@@ -11,7 +11,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, EntityCategory
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfElectricPotential,
+    EntityCategory,
+)
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
 from .const import DOMAIN, device_gen, is_gen2_status
@@ -228,7 +233,7 @@ def _create_rpc_sensors(
                         coordinator, device_id, desc, idx, key, "tC"
                     ))
 
-    # Humidity sensors (e.g. Shelly H&T Gen3) — reading under ``rh``.
+    # Humidity sensors
     for key in status:
         if match := re.match(r"humidity:(\d+)", key):
             idx = int(match.group(1))
@@ -240,24 +245,6 @@ def _create_rpc_sensors(
                     entities.append(RpcSensor(
                         coordinator, device_id, desc, idx, key, "rh"
                     ))
-
-    # Battery — ``devicepower:<idx>.battery.percent`` (nested shape). The
-    # ``battery`` description's value_fn extracts ``percent`` from the dict
-    # returned by ``component.get("battery")``.
-    for key in status:
-        if match := re.match(r"devicepower:(\d+)", key):
-            idx = int(match.group(1))
-            data = status[key]
-            if isinstance(data, dict) and isinstance(data.get("battery"), dict):
-                desc = RPC_SENSORS.get("battery")
-                if desc:
-                    uid = f"{device_id}_devicepower_{idx}_battery"
-                    if uid not in created:
-                        created.add(uid)
-                        entities.append(RpcSensor(
-                            coordinator, device_id, desc, idx, key, "battery"
-                        ))
-
     # Voltmeter — analog voltage input (e.g. Shelly Plus Uni, Plus Add-on).
     # The component id is in the add-on range (100+) but each device has a
     # single analog input, so name it cleanly without a channel suffix.
@@ -274,6 +261,43 @@ def _create_rpc_sensors(
                         entities.append(RpcSensor(
                             coordinator, device_id, desc, 0, key, "voltage"
                         ))
+
+    # Device power (battery-backed sensors)
+    for key in status:
+        if match := re.match(r"devicepower:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            battery = data.get("battery") if isinstance(data, dict) else None
+            if isinstance(battery, dict):
+                if "percent" in battery:
+                    desc = RPC_SENSORS.get("battery")
+                    if desc:
+                        uid = f"{device_id}_battery_{idx}"
+                        if uid not in created:
+                            created.add(uid)
+                            entities.append(RpcSensor(
+                                coordinator, device_id, desc, idx, key, "battery"
+                            ))
+
+                if "V" in battery:
+                    uid = f"{device_id}_battery_voltage_{idx}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcBatteryVoltageSensor(
+                            coordinator, device_id, idx, key
+                        ))
+
+    # Wi-Fi RSSI diagnostics
+    wifi = status.get("wifi")
+    if isinstance(wifi, dict) and "rssi" in wifi:
+        desc = RPC_SENSORS.get("rssi")
+        if desc:
+            uid = f"{device_id}_wifi_rssi"
+            if uid not in created:
+                created.add(uid)
+                entities.append(RpcSensor(
+                    coordinator, device_id, desc, 0, "wifi", "rssi"
+                ))
 
     return entities
 
@@ -455,6 +479,43 @@ class RpcSensor(ShellyBaseEntity, SensorEntity):
             value = self._description.value_fn(value)
 
         return value
+
+
+class RpcBatteryVoltageSensor(ShellyBaseEntity, SensorEntity):
+    """Gen2/Gen3 battery voltage from ``devicepower:<id>.battery.V``."""
+
+    _attr_name = "Battery Voltage"
+    _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        channel: int,
+        component_key: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, channel)
+        self._component_key = component_key
+        self._attr_unique_id = f"{device_id}_{component_key}_battery_voltage"
+        if channel != 0:
+            self._attr_name = f"Battery Voltage {channel + 1}"
+
+    @property
+    def native_value(self) -> float | None:
+        component = self.device_status.get(self._component_key)
+        if not isinstance(component, dict):
+            return None
+        battery = component.get("battery")
+        if not isinstance(battery, dict):
+            return None
+        value = battery.get("V")
+        if isinstance(value, (int, float)):
+            return float(value)
+        return None
 
 
 class BleSensor(ShellyBaseEntity, SensorEntity):

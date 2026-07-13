@@ -94,16 +94,13 @@ PLATFORMS: list[Platform] = [
 
 # ── Device-generation detection ────────────────────────────────────
 
-# Gen2/Gen3 RPC devices expose keys like ``switch:0``, ``light:0``, etc.
-# Battery sensor devices (e.g. Shelly H&T Gen3) expose only sensor
-# components such as ``temperature:0``, ``humidity:0`` and ``devicepower:0``.
-# Gen1 devices use legacy keys like ``relays``, ``meters``. BLE devices
-# reported through Shelly BLU Gateway use the same ``humidity:0`` /
-# ``temperature:0`` shape but are distinguished by ``_dev_info.gen == "GBLE"``
-# (checked first in ``device_gen`` before this structural fallback).
-_GEN2_PATTERN = re.compile(
-    r"(switch|light|cover|input|cloud|sys|temperature|humidity"
-    r"|devicepower|voltmeter):\d+"
+# Gen2/Gen3 RPC devices expose component keys like ``switch:0`` or
+# ``temperature:0`` and may also include top-level blocks like ``cloud`` / ``sys``.
+# Gen1 devices use legacy keys like ``relays``, ``meters``.
+# BLE devices reported through Shelly BLU Gateway also use ``<type>:<id>`` keys,
+# but should carry ``_dev_info.gen == \"GBLE\"`` which ``device_gen`` checks first.
+_GEN2_COMPONENT_KEY = re.compile(
+    r"^(switch|light|cover|input|temperature|humidity|voltmeter|devicepower):\d+$"
 )
 
 
@@ -111,7 +108,17 @@ def is_gen2_status(status: dict[str, Any]) -> bool:
     """Return True if the status dict looks like a Gen2/Gen3 RPC device."""
     if not status:
         return False
-    return any(_GEN2_PATTERN.match(key) for key in status)
+    if any(_GEN2_COMPONENT_KEY.match(key) for key in status):
+        return True
+
+    # Sensor-only Gen2 devices may expose mostly top-level RPC blocks plus
+    # one or two component keys. Treat cloud/sys/wifi presence as supporting
+    # evidence rather than a sole signal.
+    has_rpc_blocks = any(key in status for key in ("cloud", "sys", "wifi"))
+    has_legacy_gen1_blocks = any(
+        key in status for key in ("relays", "rollers", "meters", "emeters")
+    )
+    return has_rpc_blocks and not has_legacy_gen1_blocks
 
 
 def device_gen(status: dict[str, Any]) -> str:
