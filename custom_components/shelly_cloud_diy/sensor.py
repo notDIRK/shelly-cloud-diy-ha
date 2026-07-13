@@ -228,6 +228,36 @@ def _create_rpc_sensors(
                         coordinator, device_id, desc, idx, key, "tC"
                     ))
 
+    # Humidity sensors (e.g. Shelly H&T Gen3) — reading under ``rh``.
+    for key in status:
+        if match := re.match(r"humidity:(\d+)", key):
+            idx = int(match.group(1))
+            desc = RPC_SENSORS.get("humidity")
+            if desc:
+                uid = f"{device_id}_humidity_{idx}"
+                if uid not in created:
+                    created.add(uid)
+                    entities.append(RpcSensor(
+                        coordinator, device_id, desc, idx, key, "rh"
+                    ))
+
+    # Battery — ``devicepower:<idx>.battery.percent`` (nested shape). The
+    # ``battery`` description's value_fn extracts ``percent`` from the dict
+    # returned by ``component.get("battery")``.
+    for key in status:
+        if match := re.match(r"devicepower:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if isinstance(data, dict) and isinstance(data.get("battery"), dict):
+                desc = RPC_SENSORS.get("battery")
+                if desc:
+                    uid = f"{device_id}_devicepower_{idx}_battery"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, "battery"
+                        ))
+
     # Voltmeter — analog voltage input (e.g. Shelly Plus Uni, Plus Add-on).
     # The component id is in the add-on range (100+) but each device has a
     # single analog input, so name it cleanly without a channel suffix.

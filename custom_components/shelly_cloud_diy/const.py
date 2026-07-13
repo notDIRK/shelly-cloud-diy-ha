@@ -95,10 +95,16 @@ PLATFORMS: list[Platform] = [
 # ── Device-generation detection ────────────────────────────────────
 
 # Gen2/Gen3 RPC devices expose keys like ``switch:0``, ``light:0``, etc.
+# Battery sensor devices (e.g. Shelly H&T Gen3) expose only sensor
+# components such as ``temperature:0``, ``humidity:0`` and ``devicepower:0``.
 # Gen1 devices use legacy keys like ``relays``, ``meters``. BLE devices
-# reported through Shelly BLU Gateway use keys like ``humidity:0``,
-# ``temperature:0`` and the ``_dev_info.gen`` field is ``"GBLE"``.
-_GEN2_PATTERN = re.compile(r"(switch|light|cover|input|cloud|sys):\d+")
+# reported through Shelly BLU Gateway use the same ``humidity:0`` /
+# ``temperature:0`` shape but are distinguished by ``_dev_info.gen == "GBLE"``
+# (checked first in ``device_gen`` before this structural fallback).
+_GEN2_PATTERN = re.compile(
+    r"(switch|light|cover|input|cloud|sys|temperature|humidity"
+    r"|devicepower|voltmeter):\d+"
+)
 
 
 def is_gen2_status(status: dict[str, Any]) -> bool:
