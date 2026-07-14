@@ -54,6 +54,11 @@ _LOGGER = logging.getLogger(__name__)
 # Conservative default; callers typically override per-request.
 _DEFAULT_TIMEOUT_S = 10
 
+# Backoff before retrying a rate-limited request. Shelly's 1 req/s limiter
+# keeps the window open while rejected requests keep arriving; ~1.5 s reliably
+# clears a single trip in testing (1.2 s was borderline). (#6)
+_RATE_LIMIT_BACKOFF_S = 1.5
+
 
 class ShellyCloudError(Exception):
     """Base class for all Cloud-Control-API errors raised by this client."""
@@ -64,7 +69,7 @@ class ShellyCloudAuthError(ShellyCloudError):
 
 
 class ShellyCloudRateLimitError(ShellyCloudError):
-    """The 1 req/s rate limit was exceeded (HTTP 429)."""
+    """The 1 req/s rate limit was exceeded (HTTP 429, or HTTP 401 ``max_req``)."""
 
 
 class ShellyCloudTransportError(ShellyCloudError):
@@ -118,12 +123,26 @@ class ShellyCloudControl:
 
     # ── Core request plumbing ───────────────────────────────────────────
 
+    @staticmethod
+    def _is_rate_limit_body(text: str) -> bool:
+        """True if a response body is Shelly's rate-limit signal.
+
+        Shelly Cloud reports rate limiting as **HTTP 401** with a body like
+        ``{"isok": false, "errors": {"max_req": "Request limit reached!"}}``
+        — NOT the conventional HTTP 429. Without this check a burst of calls
+        (e.g. dimming a light, which also triggers a follow-up status refresh)
+        is mis-reported as an auth failure. (#6)
+        """
+        lowered = text.lower()
+        return "max_req" in lowered or "request limit" in lowered
+
     async def _post(self, path: str, extra: dict[str, Any] | None = None) -> dict:
         """POST a form request and return the parsed JSON body.
 
-        Retries once on HTTP 429 after a 1.2 s sleep so a parallel consumer
+        Retries once on HTTP 429 — or on the HTTP 401 ``max_req`` rate-limit
+        body Shelly actually uses — after a short backoff, so a parallel consumer
         of the auth_key (e.g. the Shelly mobile app) briefly sharing the
-        1 req/s budget does not stall the coordinator. Any further 429
+        1 req/s budget does not stall the coordinator. Any further rate-limit
         surfaces as :class:`ShellyCloudRateLimitError` so the caller can
         back off properly.
         """
@@ -139,12 +158,22 @@ class ShellyCloudControl:
                     url, data=payload, timeout=self._timeout
                 ) as response:
                     if response.status == 401 or response.status == 403:
+                        # Shelly returns 401 for BOTH a bad auth_key and a
+                        # rate-limit hit; only the body tells them apart. (#6)
+                        body_text = await response.text()
+                        if self._is_rate_limit_body(body_text):
+                            if attempt == 0:
+                                await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
+                                continue
+                            raise ShellyCloudRateLimitError(
+                                "Rate limit exceeded (1 req/s)"
+                            )
                         raise ShellyCloudAuthError(
                             f"Shelly Cloud rejected auth_key ({response.status})"
                         )
                     if response.status == 429:
                         if attempt == 0:
-                            await asyncio.sleep(1.2)
+                            await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
                             continue
                         raise ShellyCloudRateLimitError(
                             "Rate limit exceeded (1 req/s)"
@@ -183,7 +212,8 @@ class ShellyCloudControl:
         Some v2 endpoints expect ``auth_key`` in the query string rather than
         the body; pass it via ``params`` in that case.
 
-        Retries once on HTTP 429 after a 1.2 s sleep (same pattern as
+        Retries once on HTTP 429 (or the HTTP 401 ``max_req`` body) after a
+        short backoff (same pattern as
         :meth:`_post`); any further 429 surfaces as
         :class:`ShellyCloudRateLimitError`.
         """
@@ -196,12 +226,21 @@ class ShellyCloudControl:
                     url, json=payload, params=params, timeout=self._timeout
                 ) as response:
                     if response.status in (401, 403):
+                        # 401 doubles as Shelly's rate-limit signal. (#6)
+                        body_text = await response.text()
+                        if self._is_rate_limit_body(body_text):
+                            if attempt == 0:
+                                await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
+                                continue
+                            raise ShellyCloudRateLimitError(
+                                "Rate limit exceeded (1 req/s)"
+                            )
                         raise ShellyCloudAuthError(
                             f"Shelly Cloud rejected auth_key ({response.status})"
                         )
                     if response.status == 429:
                         if attempt == 0:
-                            await asyncio.sleep(1.2)
+                            await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
                             continue
                         raise ShellyCloudRateLimitError(
                             "Rate limit exceeded (1 req/s)"

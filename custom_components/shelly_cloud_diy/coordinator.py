@@ -20,6 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -42,6 +43,12 @@ from .const import (
 # Gap between the v1 poll completing and the v2 name lookup firing, so we
 # stay under the 1 req/s per-account rate limit that both endpoints share.
 _V2_NAME_LOOKUP_GAP_S = 1.2
+
+# Delay before the post-command status refresh (seconds). Long enough for the
+# Shelly Cloud to propagate the new state (so the poll confirms rather than
+# reverts the optimistic entity state) and to keep the command + its refresh
+# from bursting past the 1 req/s budget. (#6)
+POST_COMMAND_REFRESH_DELAY = 2.0
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -369,9 +376,18 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.error("Command %s for %s failed: %s", cmd, device_id, err)
             return None
 
-        # Schedule a fresh poll so the UI reflects the change within one
-        # request rather than waiting for the next polling tick.
-        self.hass.async_create_task(self.async_request_refresh())
+        # Schedule a *delayed* status refresh. An immediate poll races the
+        # optimistic entity state — the cloud may not have propagated the new
+        # state yet, so the poll would overwrite it and flicker the UI — and
+        # it fires a request right after the command, straining the 1 req/s
+        # budget (which Shelly enforces with a 401 rate-limit reply). Waiting
+        # a beat lets the cloud reflect the change first. (#6)
+        async def _delayed_refresh(_now: Any) -> None:
+            await self.async_request_refresh()
+
+        async_call_later(
+            self.hass, POST_COMMAND_REFRESH_DELAY, _delayed_refresh
+        )
         return {"data": data}
 
     @staticmethod
