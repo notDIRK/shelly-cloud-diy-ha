@@ -375,6 +375,7 @@ class ShellyCloudControl:
         channel: int = 0,
         turn: str | None = None,
         brightness: int | None = None,
+        gain: int | None = None,
         white: int | None = None,
         temp: int | None = None,
         red: int | None = None,
@@ -391,6 +392,14 @@ class ShellyCloudControl:
             raise ValueError(f"Invalid light turn value: {turn!r}")
         if brightness is not None and not 0 <= brightness <= 100:
             raise ValueError("brightness must be 0..100")
+        if gain is not None and not 0 <= gain <= 100:
+            raise ValueError("gain must be 0..100")
+
+        # RGBW2 dims via `brightness` in White mode but via `gain` in Color
+        # mode. Mirror the level into `gain` so the device applies whichever
+        # matches its current mode; the other field is ignored. (#6)
+        if gain is None and brightness is not None:
+            gain = brightness
 
         body = await self._post(
             "/device/light/control",
@@ -399,6 +408,7 @@ class ShellyCloudControl:
                 "channel": channel,
                 "turn": turn,
                 "brightness": brightness,
+                "gain": gain,
                 "white": white,
                 "temp": temp,
                 "red": red,

@@ -166,16 +166,18 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         NOTE: When using Shelly Cloud Integrator API, even Gen2 devices
         use CommandRequest (cmd: "light") format, not JrpcRequest.
         """
-        # For cloud integrator API, use CommandRequest for all devices
-        extra: dict[str, Any] | None = None
+        # Build a single action dict. The coordinator's _light_kwargs()
+        # maps {"on": ...} -> turn and passes brightness through; there is
+        # no separate `params` argument. HA brightness is 0-255, the cloud
+        # API expects 0-100. (#6)
+        action: dict[str, Any] = {"on": on}
         if brightness is not None:
-            extra = {"brightness": int(brightness * 100 / 255)}
+            action["brightness"] = int(brightness * 100 / 255)
         return await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="light",
             channel=self._channel,
-            action="on" if on else "off",
-            params=extra,
+            action=action,
         )
 
     @staticmethod
