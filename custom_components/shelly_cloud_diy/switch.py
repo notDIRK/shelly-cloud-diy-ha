@@ -105,19 +105,24 @@ class ShellySwitch(ShellyBaseEntity, SwitchEntity):
         self._attr_unique_id = f"{device_id}_switch_{channel}"
         self._attr_name = "Switch" if channel == 0 else f"Switch {channel + 1}"
 
+    def _component(self) -> dict[str, Any]:
+        """Return this channel's raw status component (Gen1 or Gen2)."""
+        status = self.device_status
+        if self._is_gen2:
+            return status.get(self._key, {})
+        relays = status.get("relays", [])
+        if len(relays) > self._channel:
+            return relays[self._channel]
+        return {}
+
     @property
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        status = self.device_status
-
-        if self._is_gen2:
-            return status.get(self._key, {}).get("output", False)
-        else:
-            relays = status.get("relays", [])
-            if len(relays) > self._channel:
-                return relays[self._channel].get("ison", False)
-
-        return None
+        component = self._apply_optimistic(self._component())
+        if not component:
+            return None
+        key = "output" if self._is_gen2 else "ison"
+        return component.get(key, False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
@@ -179,15 +184,6 @@ class ShellySwitch(ShellyBaseEntity, SwitchEntity):
         return True
 
     def _update_local_state(self, is_on: bool) -> None:
-        """Update local state optimistically."""
-        status = self.device_status
-
-        if self._is_gen2:
-            if self._key in status:
-                status[self._key]["output"] = is_on
-        else:
-            relays = status.get("relays", [])
-            if len(relays) > self._channel:
-                relays[self._channel]["ison"] = is_on
-
-        self.async_write_ha_state()
+        """Record the commanded state optimistically until the cloud confirms."""
+        key = "output" if self._is_gen2 else "ison"
+        self._set_optimistic({key: is_on})

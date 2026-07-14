@@ -111,34 +111,30 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
+    def _component(self) -> dict[str, Any]:
+        """Return this channel's raw status component (Gen1 or Gen2)."""
+        status = self.device_status
+        if self._is_gen2:
+            return status.get(self._key, {})
+        lights = status.get("lights", [])
+        if len(lights) > self._channel:
+            return lights[self._channel]
+        return {}
+
     @property
     def is_on(self) -> bool | None:
         """Return true if light is on."""
-        status = self.device_status
-
-        if self._is_gen2:
-            return status.get(self._key, {}).get("output", False)
-        else:
-            lights = status.get("lights", [])
-            if len(lights) > self._channel:
-                return lights[self._channel].get("ison", False)
-
-        return None
+        component = self._apply_optimistic(self._component())
+        if not component:
+            return None
+        key = "output" if self._is_gen2 else "ison"
+        return component.get(key, False)
 
     @property
     def brightness(self) -> int | None:
         """Return brightness level (0-255)."""
-        status = self.device_status
-
-        if self._is_gen2:
-            pct = status.get(self._key, {}).get("brightness", 0)
-        else:
-            lights = status.get("lights", [])
-            if len(lights) > self._channel:
-                pct = lights[self._channel].get("brightness", 0)
-            else:
-                pct = 0
-
+        component = self._apply_optimistic(self._component())
+        pct = component.get("brightness", 0)
         return int(pct * 255 / 100)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -214,21 +210,11 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
     def _update_local_state(
         self, is_on: bool, brightness: int | None = None
     ) -> None:
-        """Update local state optimistically."""
-        status = self.device_status
+        """Record the commanded state optimistically until the cloud confirms."""
         # Convert HA brightness (0-255) to Shelly percentage (0-100)
         pct = int(brightness * 100 / 255) if brightness is not None else None
-
-        if self._is_gen2:
-            if self._key in status:
-                status[self._key]["output"] = is_on
-                if pct is not None:
-                    status[self._key]["brightness"] = pct
-        else:
-            lights = status.get("lights", [])
-            if len(lights) > self._channel:
-                lights[self._channel]["ison"] = is_on
-                if pct is not None:
-                    lights[self._channel]["brightness"] = pct
-
-        self.async_write_ha_state()
+        key = "output" if self._is_gen2 else "ison"
+        values: dict[str, Any] = {key: is_on}
+        if pct is not None:
+            values["brightness"] = pct
+        self._set_optimistic(values)

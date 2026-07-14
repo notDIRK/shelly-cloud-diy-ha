@@ -5,6 +5,7 @@ Provides shared functionality for all Shelly entities.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -17,6 +18,13 @@ if TYPE_CHECKING:
     from ..coordinator import ShellyCloudCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long an optimistic value overrides cloud reads after a command. The
+# Shelly Cloud can take several seconds to propagate a just-issued change
+# (notably on RGBW2 channels); without this a lagging poll reverts the
+# optimistic state, causing a visible flicker / slider snap-back. The override
+# is cleared early as soon as the cloud confirms the value. (#6)
+OPTIMISTIC_GRACE_S = 10.0
 
 
 class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
@@ -46,6 +54,42 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
         super().__init__(coordinator)
         self._device_id = device_id
         self._channel = channel
+        # Optimistic-state override: intended component fields that win over
+        # cloud reads until confirmed or the grace window expires. (#6)
+        self._optimistic: dict[str, Any] = {}
+        self._optimistic_deadline = 0.0
+
+    def _set_optimistic(self, values: dict[str, Any]) -> None:
+        """Record an optimistic state and refresh the entity immediately.
+
+        ``values`` are raw status-component fields (e.g. ``{"output": True,
+        "brightness": 50}`` for Gen2, ``{"ison": True}`` for Gen1) so they
+        overlay cleanly onto the component dict a reader passes to
+        :meth:`_apply_optimistic`. (#6)
+        """
+        self._optimistic = dict(values)
+        self._optimistic_deadline = time.monotonic() + OPTIMISTIC_GRACE_S
+        self.async_write_ha_state()
+
+    def _apply_optimistic(self, component: dict[str, Any]) -> dict[str, Any]:
+        """Overlay any active optimistic values onto a cloud component dict.
+
+        The overlay holds until the grace window expires or the cloud confirms
+        every optimistic field — whichever comes first. So a poll that lands
+        before the Shelly Cloud has propagated a just-issued command cannot
+        revert the entity, but a genuinely different cloud state wins once
+        propagation catches up. (#6)
+        """
+        if not self._optimistic:
+            return component
+        if time.monotonic() >= self._optimistic_deadline:
+            self._optimistic = {}
+            return component
+        if all(component.get(k) == v for k, v in self._optimistic.items()):
+            # Cloud caught up — drop the override so it stays authoritative.
+            self._optimistic = {}
+            return component
+        return {**component, **self._optimistic}
 
     @property
     def device_data(self) -> dict[str, Any]:
