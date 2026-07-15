@@ -248,6 +248,30 @@ passieren — das ist aber ein echtes Langzeit-Risiko, das du kennen solltest.
 
 ---
 
+## Fehlersuche
+
+Wenn ein Gerät sich falsch verhält — falscher Zustand, ein Wert der sich nicht
+ändert, eine Entität die nicht erscheint — ist der schnellste Weg zur Lösung,
+die **Diagnose** dieses Geräts an einen Bug-Report anzuhängen.
+
+1. **Einstellungen → Geräte & Dienste → Shelly Cloud DIY**
+2. Das betroffene Gerät öffnen → **⋮ → Diagnose herunterladen**
+3. Die `.json`-Datei an ein [neues Issue](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/new/choose) anhängen
+
+Der Download ist der rohe Shelly-Cloud-Status, aus dem die Integration den
+Entitäts-Zustand baut — das macht aus Raterei meist einen präzisen Fix. Deine
+Privatsphäre bleibt gewahrt: Gerätenamen und Netzwerk-Identifier (Name, SSID,
+IP, MAC) werden automatisch geschwärzt, und die Datei listet unter
+`redacted_keys` genau auf, *was* zurückgehalten wurde. Zusätzlich enthält sie
+den Coordinator-Gesundheitsstand (letzter erfolgreicher Abruf und letzter
+Fehler), um die Diagnose zu beschleunigen.
+
+Bei Fehlern hilft es, Debug-Logging für `custom_components.shelly_cloud_diy` zu
+aktivieren (Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Debug-
+Protokollierung aktivieren) und das Problem zu reproduzieren.
+
+---
+
 ## Roadmap
 
 Vollständiger Plan mit Scope, Nicht-Zielen und Einschränkungen pro Meilenstein:

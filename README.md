@@ -238,6 +238,29 @@ long-term risk worth being aware of.
 
 ---
 
+## Troubleshooting
+
+If a device misbehaves — wrong state, a value that won't change, an entity
+that doesn't appear — the fastest way to a fix is to attach that device's
+**diagnostics** to a bug report.
+
+1. **Settings → Devices & Services → Shelly Cloud DIY**
+2. Open the affected device → **⋮ → Download diagnostics**
+3. Attach the `.json` file to a [new issue](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/new/choose)
+
+The download is the raw Shelly Cloud status the integration builds entity
+state from, so it usually turns guesswork into a precise fix. Your privacy
+is respected: device names and network identifiers (name, SSID, IP, MAC) are
+redacted automatically, and the file lists exactly what was withheld under
+`redacted_keys`. It also includes the integration's coordinator health (last
+update success and last error) to speed up diagnosis.
+
+For errors, enabling debug logging for `custom_components.shelly_cloud_diy`
+(Settings → Devices & Services → Shelly Cloud DIY → Enable debug logging)
+and reproducing the problem adds a useful timeline.
+
+---
+
 ## Roadmap
 
 Full plan with per-milestone scope, non-goals, and limitations:

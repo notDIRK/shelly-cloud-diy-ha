@@ -76,14 +76,30 @@ async def async_get_device_diagnostics(
     if device_id is None:
         return {"note": "no Shelly Cloud DIY identifier on this device"}
 
+    coordinator_health = {
+        "last_update_success": getattr(
+            coordinator, "last_update_success", None
+        ),
+        "last_error": (
+            str(coordinator.last_exception)
+            if getattr(coordinator, "last_exception", None)
+            else None
+        ),
+    }
+
     record = coordinator.devices.get(device_id)
     if record is None:
         return {
             "device_id": device_id,
+            "coordinator": coordinator_health,
             "note": "device not in the current coordinator snapshot",
         }
 
     return {
         "device_id": device_id,
+        "coordinator": coordinator_health,
+        # Transparency: exactly which keys are stripped from `record` below,
+        # so anyone attaching this to a bug report knows what was withheld.
+        "redacted_keys": sorted(DEVICE_TO_REDACT),
         "record": async_redact_data(record, DEVICE_TO_REDACT),
     }

@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a problem with the Shelly Cloud DIY integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! The single most useful
+        thing you can attach is the **device diagnostics** — it contains the
+        exact cloud status the integration builds entity state from, with
+        names and network identifiers redacted. It usually turns a guess into
+        a precise fix.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: false
+
+  - type: input
+    id: device
+    attributes:
+      label: Affected device(s)
+      description: Model and generation, e.g. "Shelly RGBW2 (Gen1)", "Plus 1PM (Gen2)".
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      description: HACS → Shelly Cloud DIY, or the `version` in manifest.json.
+      placeholder: e.g. 0.6.4
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Device diagnostics (please attach)
+      description: |
+        Settings → Devices & Services → **Shelly Cloud DIY** → the affected
+        device → ⋮ → **Download diagnostics**, then drag the `.json` file into
+        this box. Names and network identifiers are redacted automatically;
+        the `redacted_keys` field lists exactly what was withheld.
+      placeholder: Drag & drop the diagnostics .json here, or paste the `record` block.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Any error from Settings → System → Logs, or after enabling debug
+        logging for `custom_components.shelly_cloud_diy`. Will be formatted
+        as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false
