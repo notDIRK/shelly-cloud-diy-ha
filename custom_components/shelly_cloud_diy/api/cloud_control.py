@@ -434,12 +434,6 @@ class ShellyCloudControl:
         if gain is not None and not 0 <= gain <= 100:
             raise ValueError("gain must be 0..100")
 
-        # RGBW2 dims via `brightness` in White mode but via `gain` in Color
-        # mode. Mirror the level into `gain` so the device applies whichever
-        # matches its current mode; the other field is ignored. (#6)
-        if gain is None and brightness is not None:
-            gain = brightness
-
         body = await self._post(
             "/device/light/control",
             {

@@ -413,7 +413,9 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 kw["turn"] = "on" if action["on"] else "off"
             elif "turn" in action:
                 kw["turn"] = cls._normalise_turn(action["turn"])
-            for key in ("brightness", "white", "temp", "red", "green", "blue"):
+            for key in (
+                "brightness", "gain", "white", "temp", "red", "green", "blue"
+            ):
                 if key in action and action[key] is not None:
                     kw[key] = action[key]
             return kw

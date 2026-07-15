@@ -134,8 +134,41 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
     def brightness(self) -> int | None:
         """Return brightness level (0-255)."""
         component = self._apply_optimistic(self._component())
-        pct = component.get("brightness", 0)
-        return int(pct * 255 / 100)
+        if not component:
+            return None
+        if component.get("mode") == "color":
+            # RGBW2 color mode has no `brightness` field. The visible level
+            # is the white LED (0-255, same scale as HA) when the channel is
+            # white-dominant, otherwise the RGB `gain` (0-100). (#6)
+            if component.get("white", 0) > self._rgb_max(component):
+                return component.get("white", 0)
+            return int(component.get("gain", 0) * 255 / 100)
+        return int(component.get("brightness", 0) * 255 / 100)
+
+    @staticmethod
+    def _rgb_max(component: dict[str, Any]) -> int:
+        """Largest of the RGB channels (0-255), for white-vs-colour dominance."""
+        return max(
+            component.get("red", 0),
+            component.get("green", 0),
+            component.get("blue", 0),
+        )
+
+    def _brightness_fields(self, brightness: int) -> dict[str, Any]:
+        """Map an HA brightness (0-255) to the Shelly field(s) that carry it.
+
+        RGBW2 color mode drives the white LED (0-255, same scale as HA) when
+        the channel is white-dominant, else the RGB `gain` (0-100). White /
+        Gen2 channels use plain `brightness` (0-100). Choosing the field from
+        the live channel state is what makes a white-driven RGBW2 actually
+        dim instead of only ever touching an inactive channel. (#6)
+        """
+        component = self._component()
+        if component.get("mode") == "color":
+            if component.get("white", 0) > self._rgb_max(component):
+                return {"white": brightness}
+            return {"gain": int(brightness * 100 / 255)}
+        return {"brightness": int(brightness * 100 / 255)}
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
@@ -163,12 +196,12 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         use CommandRequest (cmd: "light") format, not JrpcRequest.
         """
         # Build a single action dict. The coordinator's _light_kwargs()
-        # maps {"on": ...} -> turn and passes brightness through; there is
-        # no separate `params` argument. HA brightness is 0-255, the cloud
-        # API expects 0-100. (#6)
+        # maps {"on": ...} -> turn and passes the brightness field(s)
+        # through; there is no separate `params` argument. The right field
+        # (white / gain / brightness) is chosen from the channel state. (#6)
         action: dict[str, Any] = {"on": on}
         if brightness is not None:
-            action["brightness"] = int(brightness * 100 / 255)
+            action.update(self._brightness_fields(brightness))
         return await self.coordinator.send_command(
             device_id=self._device_id,
             cmd="light",
@@ -211,10 +244,10 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         self, is_on: bool, brightness: int | None = None
     ) -> None:
         """Record the commanded state optimistically until the cloud confirms."""
-        # Convert HA brightness (0-255) to Shelly percentage (0-100)
-        pct = int(brightness * 100 / 255) if brightness is not None else None
         key = "output" if self._is_gen2 else "ison"
         values: dict[str, Any] = {key: is_on}
-        if pct is not None:
-            values["brightness"] = pct
+        if brightness is not None:
+            # Same field mapping the command used, so the optimistic overlay
+            # and the brightness reader agree on white/gain/brightness. (#6)
+            values.update(self._brightness_fields(brightness))
         self._set_optimistic(values)
