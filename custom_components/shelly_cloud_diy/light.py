@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
+    ATTR_RGBW_COLOR,
     ColorMode,
     LightEntity,
 )
@@ -108,8 +109,17 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         self._is_gen2 = is_gen2
         self._attr_unique_id = f"{device_id}_light_{channel}"
         self._attr_name = "Light" if channel == 0 else f"Light {channel + 1}"
-        self._attr_color_mode = ColorMode.BRIGHTNESS
-        self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+        # An RGBW2 (Gen1) in color mode is a true RGBW fixture: red/green/blue/
+        # white channels plus `gain` as the master brightness. Expose full
+        # colour control for it. Every other light (Gen2 channels, RGBW2 white
+        # mode) stays brightness-only. This mirrors the native HA Shelly
+        # integration's RGBW handling. (#6)
+        if not is_gen2 and self._component().get("mode") == "color":
+            self._attr_color_mode = ColorMode.RGBW
+            self._attr_supported_color_modes = {ColorMode.RGBW}
+        else:
+            self._attr_color_mode = ColorMode.BRIGHTNESS
+            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
     def _component(self) -> dict[str, Any]:
         """Return this channel's raw status component (Gen1 or Gen2)."""
@@ -137,48 +147,56 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         if not component:
             return None
         if component.get("mode") == "color":
-            # RGBW2 color mode has no `brightness` field. The visible level
-            # is the white LED (0-255, same scale as HA) when the channel is
-            # white-dominant, otherwise the RGB `gain` (0-100). (#6)
-            if component.get("white", 0) > self._rgb_max(component):
-                return component.get("white", 0)
+            # RGBW2 color mode has no `brightness` field. `gain` (0-100) is the
+            # master dimmer for ALL channels including the white LED (Shelly
+            # Gen1 API: "gain — Gain for all channels, applies in mode=color").
+            # The per-channel `white`/RGB values only set the mix/base level,
+            # not the perceived brightness — so the visible level is always
+            # `gain`, whether the channel is lit by RGB or the white LED. (#6)
             return int(component.get("gain", 0) * 255 / 100)
         return int(component.get("brightness", 0) * 255 / 100)
 
-    @staticmethod
-    def _rgb_max(component: dict[str, Any]) -> int:
-        """Largest of the RGB channels (0-255), for white-vs-colour dominance."""
-        return max(
-            component.get("red", 0),
-            component.get("green", 0),
-            component.get("blue", 0),
+    @property
+    def rgbw_color(self) -> tuple[int, int, int, int] | None:
+        """Return the (red, green, blue, white) colour of an RGBW2 channel."""
+        if self._attr_color_mode != ColorMode.RGBW:
+            return None
+        component = self._apply_optimistic(self._component())
+        if not component:
+            return None
+        return (
+            int(component.get("red", 0)),
+            int(component.get("green", 0)),
+            int(component.get("blue", 0)),
+            int(component.get("white", 0)),
         )
 
     def _brightness_fields(self, brightness: int) -> dict[str, Any]:
         """Map an HA brightness (0-255) to the Shelly field(s) that carry it.
 
-        RGBW2 color mode drives the white LED (0-255, same scale as HA) when
-        the channel is white-dominant, else the RGB `gain` (0-100). White /
-        Gen2 channels use plain `brightness` (0-100). Choosing the field from
-        the live channel state is what makes a white-driven RGBW2 actually
-        dim instead of only ever touching an inactive channel. (#6)
+        RGBW2 color mode dims via `gain` (0-100), the master multiplier over
+        ALL channels including the white LED (Shelly Gen1 API: "gain — Gain for
+        all channels, applies in mode=color"). Writing the per-channel `white`
+        level does NOT dim the output, so brightness always maps to `gain` in
+        color mode. White / Gen2 channels use plain `brightness` (0-100). (#6)
         """
         component = self._component()
         if component.get("mode") == "color":
-            if component.get("white", 0) > self._rgb_max(component):
-                return {"white": brightness}
-            return {"gain": int(brightness * 100 / 255)}
+            # Floor at 1: gain 0 reads as off, and a brightness command here
+            # always means "on at some level", never off.
+            return {"gain": max(1, int(brightness * 100 / 255))}
         return {"brightness": int(brightness * 100 / 255)}
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
         brightness = kwargs.get(ATTR_BRIGHTNESS)
+        rgbw = kwargs.get(ATTR_RGBW_COLOR)
         response = await self._send_light_command(
-            on=True, brightness=brightness,
+            on=True, brightness=brightness, rgbw=rgbw,
         )
         if not self._is_command_ok(response):
             return
-        self._update_local_state(True, brightness=brightness)
+        self._update_local_state(True, brightness=brightness, rgbw=rgbw)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
@@ -188,7 +206,10 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         self._update_local_state(False)
 
     async def _send_light_command(
-        self, on: bool, brightness: int | None = None
+        self,
+        on: bool,
+        brightness: int | None = None,
+        rgbw: tuple[int, int, int, int] | None = None,
     ) -> dict | None:
         """Send the appropriate command for Gen1 or Gen2 light.
 
@@ -196,10 +217,16 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         use CommandRequest (cmd: "light") format, not JrpcRequest.
         """
         # Build a single action dict. The coordinator's _light_kwargs()
-        # maps {"on": ...} -> turn and passes the brightness field(s)
-        # through; there is no separate `params` argument. The right field
-        # (white / gain / brightness) is chosen from the channel state. (#6)
+        # maps {"on": ...} -> turn and passes the colour/brightness field(s)
+        # through; there is no separate `params` argument. Brightness picks
+        # the right field (gain / brightness) from the channel state, and an
+        # RGBW2 colour is sent as red/green/blue/white. (#6)
         action: dict[str, Any] = {"on": on}
+        if rgbw is not None:
+            red, green, blue, white = rgbw
+            action.update(
+                {"red": red, "green": green, "blue": blue, "white": white}
+            )
         if brightness is not None:
             action.update(self._brightness_fields(brightness))
         return await self.coordinator.send_command(
@@ -241,13 +268,21 @@ class ShellyLight(ShellyBaseEntity, LightEntity):
         return True
 
     def _update_local_state(
-        self, is_on: bool, brightness: int | None = None
+        self,
+        is_on: bool,
+        brightness: int | None = None,
+        rgbw: tuple[int, int, int, int] | None = None,
     ) -> None:
         """Record the commanded state optimistically until the cloud confirms."""
         key = "output" if self._is_gen2 else "ison"
         values: dict[str, Any] = {key: is_on}
+        if rgbw is not None:
+            red, green, blue, white = rgbw
+            values.update(
+                {"red": red, "green": green, "blue": blue, "white": white}
+            )
         if brightness is not None:
             # Same field mapping the command used, so the optimistic overlay
-            # and the brightness reader agree on white/gain/brightness. (#6)
+            # and the brightness/colour readers agree on gain/brightness. (#6)
             values.update(self._brightness_fields(brightness))
         self._set_optimistic(values)
