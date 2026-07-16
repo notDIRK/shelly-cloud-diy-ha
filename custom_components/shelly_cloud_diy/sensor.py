@@ -275,6 +275,37 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, 0, key, "voltage"
                         ))
 
+    # Pulse counter — an ``input:<idx>`` configured in COUNT mode (e.g. the
+    # Shelly Plus Uni COUNT IN terminal) carries a cumulative total under
+    # ``counts.total`` and a live rate under ``freq``. A switch/button/analog
+    # input carries neither, and we read cloud status (not device config), so
+    # the presence of each field is the count-mode signal — gate on it.
+    for key in status:
+        if match := re.match(r"input:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            counts = data.get("counts")
+            if isinstance(counts, dict) and counts.get("total") is not None:
+                desc = RPC_SENSORS.get("input_counter")
+                if desc:
+                    uid = f"{device_id}_input_{idx}_counter"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, "counts"
+                        ))
+            if data.get("freq") is not None:
+                desc = RPC_SENSORS.get("input_frequency")
+                if desc:
+                    uid = f"{device_id}_input_{idx}_frequency"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, "freq"
+                        ))
+
     return entities
 
 

@@ -20,6 +20,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
+    UnitOfFrequency,
     UnitOfPower,
     UnitOfReactivePower,
     UnitOfTemperature,
@@ -384,6 +385,28 @@ RPC_SENSORS: Final[dict[str, RpcSensorDescription]] = {
         name="Voltmeter",
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    # Pulse counter — an input configured in COUNT mode (e.g. the Shelly Plus
+    # Uni COUNT IN terminal) reports its cumulative pulse total under
+    # ``input:<id>.counts.total`` and the current pulse rate under
+    # ``input:<id>.freq``. State class TOTAL (not TOTAL_INCREASING) because the
+    # counter can be reset on the device.
+    "input_counter": RpcSensorDescription(
+        key="input",
+        sub_key="counts",
+        name="Pulse Counter",
+        native_unit_of_measurement="pulse",
+        state_class=SensorStateClass.TOTAL,
+        value_fn=lambda status: status.get("total"),
+    ),
+    "input_frequency": RpcSensorDescription(
+        key="input",
+        sub_key="freq",
+        name="Pulse Frequency",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
     ),
