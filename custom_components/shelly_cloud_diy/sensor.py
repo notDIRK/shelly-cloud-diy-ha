@@ -306,6 +306,81 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, "freq"
                         ))
 
+    # Energy meter — instantaneous 3-phase measurements (Shelly Pro 3EM
+    # ``em:<idx>``). Each phase (a/b/c) plus the totals is a flat sub-key on
+    # the component dict; every present, non-null field becomes its own entity
+    # via a dedicated description. ``n_current`` is intentionally absent from
+    # the table (null on installs without a neutral CT), and ``id`` /
+    # ``user_calibrated_phase`` are metadata, not sensors.
+    for key in status:
+        if match := re.match(r"em:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            for attr, desc_key in [
+                ("a_act_power", "em_a_act_power"),
+                ("a_aprt_power", "em_a_aprt_power"),
+                ("a_current", "em_a_current"),
+                ("a_voltage", "em_a_voltage"),
+                ("a_freq", "em_a_freq"),
+                ("a_pf", "em_a_pf"),
+                ("b_act_power", "em_b_act_power"),
+                ("b_aprt_power", "em_b_aprt_power"),
+                ("b_current", "em_b_current"),
+                ("b_voltage", "em_b_voltage"),
+                ("b_freq", "em_b_freq"),
+                ("b_pf", "em_b_pf"),
+                ("c_act_power", "em_c_act_power"),
+                ("c_aprt_power", "em_c_aprt_power"),
+                ("c_current", "em_c_current"),
+                ("c_voltage", "em_c_voltage"),
+                ("c_freq", "em_c_freq"),
+                ("c_pf", "em_c_pf"),
+                ("total_act_power", "em_total_act_power"),
+                ("total_aprt_power", "em_total_aprt_power"),
+                ("total_current", "em_total_current"),
+            ]:
+                if data.get(attr) is None:
+                    continue
+                desc = RPC_SENSORS.get(desc_key)
+                if desc:
+                    uid = f"{device_id}_{key}_{attr}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, attr
+                        ))
+
+    # Energy meter — cumulative energy counters (``emdata:<idx>``). Values are
+    # already in watt-hours; the descriptions carry no scaling value_fn.
+    for key in status:
+        if match := re.match(r"emdata:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            for attr, desc_key in [
+                ("a_total_act_energy", "emdata_a_total_act_energy"),
+                ("a_total_act_ret_energy", "emdata_a_total_act_ret_energy"),
+                ("b_total_act_energy", "emdata_b_total_act_energy"),
+                ("b_total_act_ret_energy", "emdata_b_total_act_ret_energy"),
+                ("c_total_act_energy", "emdata_c_total_act_energy"),
+                ("c_total_act_ret_energy", "emdata_c_total_act_ret_energy"),
+                ("total_act", "emdata_total_act"),
+                ("total_act_ret", "emdata_total_act_ret"),
+            ]:
+                if data.get(attr) is None:
+                    continue
+                desc = RPC_SENSORS.get(desc_key)
+                if desc:
+                    uid = f"{device_id}_{key}_{attr}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, attr
+                        ))
+
     return entities
 
 
