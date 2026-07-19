@@ -930,6 +930,18 @@ BLE_SENSORS: Final[dict[str, BleSensorDescription]] = {
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:compass-outline",
     ),
+    # Shelly BLU Door/Window (SBDW-002C), bridged via a BLU gateway. Reports a
+    # ``tilt:0`` key with an ``angle`` field (opening angle in degrees). HA has
+    # no device_class for a raw angle, so we mirror the native Shelly Gen1
+    # tilt sensor: degrees + MEASUREMENT, no device_class. (Its ``window:0``
+    # open/closed contact is a binary sensor; battery is covered above.)
+    "tilt": BleSensorDescription(
+        name="Tilt",
+        value_field="angle",
+        native_unit_of_measurement="°",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:angle-acute",
+    ),
 }
 
 
@@ -960,5 +972,14 @@ BLE_BINARY_SENSORS: Final[dict[str, BleBinarySensorDescription]] = {
         name="Motion",
         value_field="motion",
         device_class=BinarySensorDeviceClass.MOTION,
+    ),
+    # Shelly BLU Door/Window (SBDW-002C), bridged via a BLU gateway. Reports a
+    # ``window:0`` key with an ``open`` field (true = open). We mirror the
+    # native Shelly Door/Window device_class (OPENING). ``is_on`` already
+    # coerces bool or numeric, so a 0/1 payload is handled too.
+    "window": BleBinarySensorDescription(
+        name="Door/Window",
+        value_field="open",
+        device_class=BinarySensorDeviceClass.OPENING,
     ),
 }
