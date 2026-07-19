@@ -204,9 +204,11 @@ def _create_rpc_sensors(
 class RpcVirtualBinarySensor(ShellyBaseEntity, BinarySensorEntity):
     """Read-only Gen2/Gen3 virtual boolean component (``boolean:<id>``).
 
-    Mirrors the live ``value`` as a plain binary sensor with a generic name
-    (e.g. "Boolean 200"). Read-only: the cloud status has no writable-view flag
-    and the Cloud Control API exposes no ``Boolean.Set``. (#9)
+    Mirrors the live ``value`` as a plain binary sensor. The user-set name is
+    fetched lazily via the v2 settings endpoint and cached on the coordinator;
+    until it arrives (or if it is absent) the entity falls back to a generic
+    name (e.g. "Boolean 200"). Read-only: the cloud status has no writable-view
+    flag and the Cloud Control API exposes no ``Boolean.Set``. (#9)
     """
 
     def __init__(
@@ -220,7 +222,19 @@ class RpcVirtualBinarySensor(ShellyBaseEntity, BinarySensorEntity):
         super().__init__(coordinator, device_id, 0)
         self._component_key = component_key
         self._attr_unique_id = f"{device_id}_{component_key}_value"
-        self._attr_name = f"Boolean {comp_id}"
+        # Generic fallback; the real name is a PROPERTY because the v2 config
+        # arrives via a background task after the entity is created. (#9)
+        self._generic_name = f"Boolean {comp_id}"
+
+    @property
+    def name(self) -> str:
+        """Return the user-set component name, or the generic fallback."""
+        config = self.virtual_component_config(self._component_key)
+        if isinstance(config, dict):
+            name = config.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        return self._generic_name
 
     @property
     def is_on(self) -> bool | None:

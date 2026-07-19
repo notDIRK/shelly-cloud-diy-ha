@@ -101,6 +101,26 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
         """Get device status from coordinator."""
         return self.device_data.get("status", {})
 
+    def virtual_component_config(self, component_key: str) -> dict[str, Any] | None:
+        """Return the cached v2 config for a virtual component, or None.
+
+        The coordinator fetches per-component config (name / unit / enum
+        options) lazily in the background via the v2 settings endpoint and
+        caches it under ``coordinator.virtual_configs[device_id][key]``. This
+        helper reads that cache with full None-safety: a missing cache
+        (e.g. before the background fetch completes, or a coordinator without
+        the attribute at all) returns ``None`` so callers fall back to their
+        generic behaviour. (#9)
+        """
+        configs = getattr(self.coordinator, "virtual_configs", None)
+        if not isinstance(configs, dict):
+            return None
+        device_configs = configs.get(self._device_id)
+        if not isinstance(device_configs, dict):
+            return None
+        config = device_configs.get(component_key)
+        return config if isinstance(config, dict) else None
+
     @property
     def is_gen2(self) -> bool:
         """Check if device is Gen2/Gen3."""

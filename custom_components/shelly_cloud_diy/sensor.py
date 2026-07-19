@@ -408,10 +408,14 @@ def _create_rpc_sensors(
 class RpcVirtualSensor(ShellyBaseEntity, SensorEntity):
     """Read-only Gen2/Gen3 virtual component (number / enum / text).
 
-    The cloud status exposes only the live ``value``; without the component
-    config (name / min / max / options / writable-view) we cannot build a
-    controllable entity, so this mirrors the value as a plain read-only sensor
-    with a generic name (e.g. "Number 200"). (#9)
+    The cloud status exposes only the live ``value``. The component *config*
+    (real name, number unit, enum options) is fetched lazily in the background
+    via the v2 settings endpoint and cached on the coordinator; this entity
+    enriches itself from that cache when it arrives. Until then — or if the
+    config is missing entirely — it falls back to a generic name (e.g.
+    "Number 200") with no unit, i.e. the original read-only behaviour. The
+    live value is always mirrored read-only (no controllable write path in the
+    Cloud Control API). (#9)
     """
 
     _VIRTUAL_ICONS = {
@@ -430,12 +434,72 @@ class RpcVirtualSensor(ShellyBaseEntity, SensorEntity):
     ) -> None:
         """Initialize the virtual-component sensor."""
         super().__init__(coordinator, device_id, 0)
+        self._comp_type = comp_type
         self._component_key = component_key
         self._attr_unique_id = f"{device_id}_{component_key}_value"
-        self._attr_name = f"{comp_type.capitalize()} {comp_id}"
+        # Generic fallback used until (or unless) the v2 config resolves. The
+        # name is a PROPERTY, not baked into ``_attr_name``, because the config
+        # arrives via a background task after the entity is created.
+        self._generic_name = f"{comp_type.capitalize()} {comp_id}"
         icon = self._VIRTUAL_ICONS.get(comp_type)
         if icon:
             self._attr_icon = icon
+
+    @property
+    def name(self) -> str:
+        """Return the user-set component name, or the generic fallback."""
+        config = self.virtual_component_config(self._component_key)
+        if isinstance(config, dict):
+            name = config.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        return self._generic_name
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the number component's unit from ``meta.ui.unit`` if present."""
+        if self._comp_type != "number":
+            return None
+        config = self.virtual_component_config(self._component_key)
+        if not isinstance(config, dict):
+            return None
+        meta = config.get("meta")
+        if not isinstance(meta, dict):
+            return None
+        ui = meta.get("ui")
+        if not isinstance(ui, dict):
+            return None
+        unit = ui.get("unit")
+        if isinstance(unit, str) and unit:
+            return unit
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose enum options / titles as attributes (safe, non-device-class).
+
+        We deliberately keep the sensor a plain string sensor rather than a
+        ``SensorDeviceClass.ENUM``: the live value might not be one of the
+        configured options, which would spam HA with warnings. Surfacing the
+        options as attributes gives dashboards the metadata without that risk.
+        """
+        if self._comp_type != "enum":
+            return None
+        config = self.virtual_component_config(self._component_key)
+        if not isinstance(config, dict):
+            return None
+        attrs: dict[str, Any] = {}
+        options = config.get("options")
+        if isinstance(options, list):
+            attrs["options"] = options
+        meta = config.get("meta")
+        if isinstance(meta, dict):
+            ui = meta.get("ui")
+            if isinstance(ui, dict):
+                titles = ui.get("titles")
+                if isinstance(titles, dict):
+                    attrs["titles"] = titles
+        return attrs or None
 
     @property
     def native_value(self) -> float | int | str | None:

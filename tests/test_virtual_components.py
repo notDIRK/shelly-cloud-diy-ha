@@ -25,10 +25,19 @@ DEVICE_ID = "wall01display"
 
 
 class _FakeCoordinator:
-    def __init__(self, device_id: str, status: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        device_id: str,
+        status: dict[str, Any],
+        virtual_configs: dict[str, dict[str, dict]] | None = None,
+    ) -> None:
         self.devices = {device_id: {"status": status, "device_code": "SAWD-0A1XX10EU1", "online": True}}
         self.data = self.devices
         self.last_update_success = True
+        # Only set when a test wants to exercise config enrichment; leaving it
+        # unset also exercises the ``getattr(..., None)`` None-safety path.
+        if virtual_configs is not None:
+            self.virtual_configs = virtual_configs
 
 
 # The exact status LEDuser reported (device 1), plus sys so it reads as Gen2.
@@ -50,8 +59,8 @@ _VCOMP_STATUS: dict[str, Any] = {
 }
 
 
-def _build(status: dict[str, Any]):
-    coord = _FakeCoordinator(DEVICE_ID, status)
+def _build(status: dict[str, Any], virtual_configs=None):
+    coord = _FakeCoordinator(DEVICE_ID, status, virtual_configs)
     sensors = create_rpc_sensors(DEVICE_ID, status, set(), coord)
     binaries = create_rpc_binary_sensors(DEVICE_ID, status, set(), coord)
     by_uid = {e.unique_id: e for e in [*sensors, *binaries]}
@@ -70,15 +79,15 @@ def test_number_enum_text_become_readonly_sensors():
     assert len(virtual) == 7  # number(3) + enum(3) + text(1)
 
     n = by_uid[f"{DEVICE_ID}_number:201_value"]
-    assert n._attr_name == "Number 201"
+    assert n.name == "Number 201"
     assert n.native_value == 26.1
 
     e = by_uid[f"{DEVICE_ID}_enum:200_value"]
-    assert e._attr_name == "Enum 200"
+    assert e.name == "Enum 200"
     assert e.native_value == "cool"
 
     t = by_uid[f"{DEVICE_ID}_text:200_value"]
-    assert t._attr_name == "Text 200"
+    assert t.name == "Text 200"
     assert t.native_value == "SCRIPT READY"
     # Read-only virtual sensors carry no wrong statistics metadata.
     assert n.state_class is None and n.device_class is None
@@ -88,7 +97,7 @@ def test_boolean_becomes_readonly_binary_sensor():
     _s, binaries, by_uid = _build(_VCOMP_STATUS)
     virtual = [e for e in binaries if isinstance(e, RpcVirtualBinarySensor)]
     assert len(virtual) == 2
-    assert by_uid[f"{DEVICE_ID}_boolean:200_value"]._attr_name == "Boolean 200"
+    assert by_uid[f"{DEVICE_ID}_boolean:200_value"].name == "Boolean 200"
     assert by_uid[f"{DEVICE_ID}_boolean:200_value"].is_on is False
     assert by_uid[f"{DEVICE_ID}_boolean:201_value"].is_on is True
 
@@ -119,3 +128,80 @@ def test_boolean_numeric_coercion():
     _s, _b, by_uid = _build(status)
     assert by_uid[f"{DEVICE_ID}_boolean:200_value"].is_on is True
     assert by_uid[f"{DEVICE_ID}_boolean:201_value"].is_on is False
+
+
+# ── v2-config enrichment (issue #9, part 3) ─────────────────────────────────
+# The v2 settings endpoint returns per-virtual-component config keyed exactly
+# like the status keys. Config shape derived from the native HA Shelly
+# integration (utils.get_virtual_component_unit / get_rpc_custom_name,
+# entity.py enum options+titles), not live-confirmed on an account with
+# virtual comps.
+_VCOMP_CONFIG: dict[str, dict[str, dict]] = {
+    DEVICE_ID: {
+        "number:200": {"name": "Target Temp", "meta": {"ui": {"unit": "°C"}}},
+        "number:201": {"name": None, "meta": {"ui": {}}},  # null name → generic
+        "number:202": {"meta": {"ui": {"unit": ""}}},       # empty unit → None
+        "enum:200": {
+            "name": "HVAC Mode",
+            "options": ["cool", "heat", "auto"],
+            "meta": {"ui": {"titles": {"cool": "Cooling", "heat": "Heating"}}},
+        },
+        "text:200": {"name": "Script Status"},
+        "boolean:200": {"name": "Away Flag"},
+    }
+}
+
+
+def test_enriched_name_when_config_present():
+    _s, binaries, by_uid = _build(_VCOMP_STATUS, _VCOMP_CONFIG)
+    assert by_uid[f"{DEVICE_ID}_number:200_value"].name == "Target Temp"
+    assert by_uid[f"{DEVICE_ID}_enum:200_value"].name == "HVAC Mode"
+    assert by_uid[f"{DEVICE_ID}_text:200_value"].name == "Script Status"
+    assert by_uid[f"{DEVICE_ID}_boolean:200_value"].name == "Away Flag"
+
+
+def test_fallback_generic_name_when_config_absent():
+    # No virtual_configs on the coordinator at all → generic names, no crash.
+    _s, _b, by_uid = _build(_VCOMP_STATUS)
+    assert by_uid[f"{DEVICE_ID}_number:200_value"].name == "Number 200"
+    assert by_uid[f"{DEVICE_ID}_boolean:200_value"].name == "Boolean 200"
+    # Null / missing name in config also falls back to generic.
+    _s2, _b2, by_uid2 = _build(_VCOMP_STATUS, _VCOMP_CONFIG)
+    assert by_uid2[f"{DEVICE_ID}_number:201_value"].name == "Number 201"
+
+
+def test_number_unit_from_meta_ui_unit():
+    _s, _b, by_uid = _build(_VCOMP_STATUS, _VCOMP_CONFIG)
+    assert by_uid[f"{DEVICE_ID}_number:200_value"].native_unit_of_measurement == "°C"
+    # Empty-string unit → None (no bogus unit).
+    assert by_uid[f"{DEVICE_ID}_number:202_value"].native_unit_of_measurement is None
+    # Enum/text carry no unit even with config present.
+    assert by_uid[f"{DEVICE_ID}_enum:200_value"].native_unit_of_measurement is None
+
+
+def test_enum_options_attribute():
+    _s, _b, by_uid = _build(_VCOMP_STATUS, _VCOMP_CONFIG)
+    attrs = by_uid[f"{DEVICE_ID}_enum:200_value"].extra_state_attributes
+    assert attrs["options"] == ["cool", "heat", "auto"]
+    assert attrs["titles"] == {"cool": "Cooling", "heat": "Heating"}
+    # Enum with no config entry → no attributes, no crash.
+    assert by_uid[f"{DEVICE_ID}_enum:201_value"].extra_state_attributes is None
+    # A number is not an enum → never emits options attributes.
+    assert by_uid[f"{DEVICE_ID}_number:200_value"].extra_state_attributes is None
+
+
+def test_none_safety_partial_and_missing_config():
+    # Coordinator has virtual_configs but not for this device / component.
+    _s, _b, by_uid = _build(_VCOMP_STATUS, {"other-device": {"number:200": {"name": "X"}}})
+    n = by_uid[f"{DEVICE_ID}_number:200_value"]
+    assert n.name == "Number 200"
+    assert n.native_unit_of_measurement is None
+    # Malformed config sub-trees must not raise.
+    broken = {DEVICE_ID: {
+        "number:200": {"meta": "not-a-dict"},
+        "enum:200": {"options": "not-a-list", "meta": {"ui": "nope"}},
+    }}
+    _s2, _b2, by_uid2 = _build(_VCOMP_STATUS, broken)
+    assert by_uid2[f"{DEVICE_ID}_number:200_value"].native_unit_of_measurement is None
+    assert by_uid2[f"{DEVICE_ID}_number:200_value"].name == "Number 200"
+    assert by_uid2[f"{DEVICE_ID}_enum:200_value"].extra_state_attributes is None
