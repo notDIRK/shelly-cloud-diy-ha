@@ -182,7 +182,56 @@ def _create_rpc_sensors(
                     coordinator, device_id, desc, 0, "cloud", "connected"
                 ))
 
+    # Virtual boolean components (READ-ONLY) — Gen2/Gen3 ``boolean:<id>.value``.
+    # Exposed read-only for the same reason as the virtual sensors in sensor.py:
+    # the cloud status carries no component config (writable-view / name) and the
+    # Cloud Control API has no virtual-component write method. (#9)
+    for key in status:
+        if match := re.match(r"boolean:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if isinstance(data, dict) and "value" in data:
+                uid = f"{device_id}_{key}_value"
+                if uid not in created:
+                    created.add(uid)
+                    entities.append(RpcVirtualBinarySensor(
+                        coordinator, device_id, idx, key
+                    ))
+
     return entities
+
+
+class RpcVirtualBinarySensor(ShellyBaseEntity, BinarySensorEntity):
+    """Read-only Gen2/Gen3 virtual boolean component (``boolean:<id>``).
+
+    Mirrors the live ``value`` as a plain binary sensor with a generic name
+    (e.g. "Boolean 200"). Read-only: the cloud status has no writable-view flag
+    and the Cloud Control API exposes no ``Boolean.Set``. (#9)
+    """
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        comp_id: int,
+        component_key: str,
+    ) -> None:
+        """Initialize the virtual boolean binary sensor."""
+        super().__init__(coordinator, device_id, 0)
+        self._component_key = component_key
+        self._attr_unique_id = f"{device_id}_{component_key}_value"
+        self._attr_name = f"Boolean {comp_id}"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the virtual boolean's current value."""
+        component = self.device_status.get(self._component_key)
+        if not isinstance(component, dict):
+            return None
+        value = component.get("value")
+        if value is None:
+            return None
+        return bool(value)
 
 
 def _create_ble_binary_sensors(

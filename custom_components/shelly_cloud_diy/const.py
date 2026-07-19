@@ -103,7 +103,7 @@ PLATFORMS: list[Platform] = [
 # (checked first in ``device_gen`` before this structural fallback).
 _GEN2_PATTERN = re.compile(
     r"(switch|light|cover|input|cloud|sys|temperature|humidity"
-    r"|devicepower|voltmeter):\d+"
+    r"|devicepower|voltmeter|boolean|number|enum|text|button):\d+"
 )
 
 

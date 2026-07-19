@@ -381,7 +381,69 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, attr
                         ))
 
+    # Virtual components (READ-ONLY) — Gen2/Gen3 "virtual" number/enum/text
+    # components (e.g. created by a script or a Wall Display) surface their
+    # current value under ``<type>:<id>.value`` in the cloud status. We expose
+    # them read-only because the cloud status carries no component *config*
+    # (name / min / max / options / writable-view) and the Cloud Control API
+    # has no documented virtual-component write method — a controllable version
+    # needs both. Boolean is handled in binary_sensor.py; button carries no
+    # value (it is an action) and is skipped. (#9)
+    for key in status:
+        if match := re.match(r"(number|enum|text):(\d+)", key):
+            comp_type = match.group(1)
+            idx = int(match.group(2))
+            data = status[key]
+            if isinstance(data, dict) and "value" in data:
+                uid = f"{device_id}_{key}_value"
+                if uid not in created:
+                    created.add(uid)
+                    entities.append(RpcVirtualSensor(
+                        coordinator, device_id, comp_type, idx, key
+                    ))
+
     return entities
+
+
+class RpcVirtualSensor(ShellyBaseEntity, SensorEntity):
+    """Read-only Gen2/Gen3 virtual component (number / enum / text).
+
+    The cloud status exposes only the live ``value``; without the component
+    config (name / min / max / options / writable-view) we cannot build a
+    controllable entity, so this mirrors the value as a plain read-only sensor
+    with a generic name (e.g. "Number 200"). (#9)
+    """
+
+    _VIRTUAL_ICONS = {
+        "number": "mdi:numeric",
+        "enum": "mdi:format-list-bulleted",
+        "text": "mdi:text-short",
+    }
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        comp_type: str,
+        comp_id: int,
+        component_key: str,
+    ) -> None:
+        """Initialize the virtual-component sensor."""
+        super().__init__(coordinator, device_id, 0)
+        self._component_key = component_key
+        self._attr_unique_id = f"{device_id}_{component_key}_value"
+        self._attr_name = f"{comp_type.capitalize()} {comp_id}"
+        icon = self._VIRTUAL_ICONS.get(comp_type)
+        if icon:
+            self._attr_icon = icon
+
+    @property
+    def native_value(self) -> float | int | str | None:
+        """Return the virtual component's current value."""
+        component = self.device_status.get(self._component_key)
+        if not isinstance(component, dict):
+            return None
+        return component.get("value")
 
 
 class BlockSensor(ShellyBaseEntity, SensorEntity):
