@@ -15,5 +15,5 @@
     "aiohttp>=3.8.0",
     "aioshelly>=13.0.0"
   ],
-  "version": "0.6.9"
+  "version": "0.7.0-beta1"
 }
