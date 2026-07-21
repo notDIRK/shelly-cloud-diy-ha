@@ -18,18 +18,25 @@ traceability only. No upstream merges are expected.
 
 ## Scope target
 
-- **Short term:** installable via **HACS** (currently as a custom repository,
-  subsequently in the HACS default store).
-- **Not a short-term goal:** submission to **Home Assistant Core**. Code is
+- **Achieved:** installable via **HACS** — the integration is in the HACS
+  default store, so no custom-repository URL is needed.
+- **Not a goal for now:** submission to **Home Assistant Core**. Code is
   kept Core-compatible in style (no personal references in source, English
-  log messages, proper exception types, translations), but we are not
-  building out the full Core quality-scale requirements (heavy test
-  coverage, diagnostics/repairs platforms, quality_scale=gold) in the
-  initial releases.
+  log messages, proper exception types, translations), but the full Core
+  quality-scale requirements are not being built out on a schedule. Some of
+  them have since landed anyway because they were independently useful — a
+  sanitized diagnostics export in particular, which is what makes it
+  possible to debug a user's device remotely from an issue report.
 
 ## Milestones
 
 Status key: ✅ done · 🔄 in progress · ⏳ planned · 💡 aspirational
+
+> **Where the project stands (2026-07-21, `v0.6.9`):** Milestones 0, 1 and 3
+> are done — the integration is released, in the HACS default store, and has
+> grown well past the original M1 scope (Gen1/Gen2/Gen3 devices, BLU family,
+> energy monitoring, virtual components). Milestone 2 (OAuth + realtime) is
+> built but not shipped; see its section for the finding that is reshaping it.
 
 ### Milestone 0 — Foundation  ✅
 
@@ -52,7 +59,7 @@ Status key: ✅ done · 🔄 in progress · ⏳ planned · 💡 aspirational
 - Three historical release tags (`v0.1.0-notDIRK` … `v0.2.2-notDIRK`) kept
   on their Integrator-API commits for audit trail.
 
-### Milestone 1 — Cloud Control API with `auth_key` + HTTP polling  🔄 (next)
+### Milestone 1 — Cloud Control API with `auth_key` + HTTP polling  ✅
 
 **Goal:** First usable HACS release for private users. No Integrator-API
 token, no Shelly support email, no consent webhook. User pastes their
@@ -97,14 +104,21 @@ M1 point-release follow-ups (all within the `auth_key` HTTP-polling model,
 no OAuth needed):
 - **v0.3.2** ✅ — Gen2/Gen3 device model detection (read `code` + `cloud.connected`
   from the top level of `/device/all_status`, not just from `_dev_info`).
-- **v0.3.3** ⏳ — User-set device name backfill via the Cloud Control API v2
+- **v0.3.3** ✅ — User-set device name backfill via the Cloud Control API v2
   endpoint `POST /v2/devices/api/get` with
   `{auth_key, ids, select:["settings"], pick:{settings:["sys"]}}` — returns
   `settings.sys.device.name` (Gen2) / `settings.name` (Gen1). Lazy, batched,
   online-only, shares the 1 req/s budget with the main poll. This is the
   *device-local* name (set via the Shelly app / LAN RPC); in practice
   identical to the user-visible cloud label but not guaranteed.
-- **v0.4.0** ⏳ — Opt-in per-device entity creation (see below).
+- **v0.4.0** ✅ — Opt-in per-device entity creation (see below).
+
+Everything after v0.4.0 is device- and platform-coverage work that was not
+foreseen in the original M1 plan, driven mostly by user issue reports:
+Gen2 dual-cover, H&T Gen3 battery sensors, RGBW2 colour control, Plus Uni
+pulse counter, Pro 3EM energy monitoring, BLU Door/Window, and read-only
+virtual components. See the [releases](https://github.com/notDIRK/shelly-cloud-diy-ha/releases)
+for the per-version detail.
 
 Opt-in entity creation (v0.4.0):
 - Default auto-creation of every discovered device's entities is unfriendly
@@ -125,10 +139,31 @@ Explicitly documented limitations users must know:
   underdocumented** (they reserve the right to change parameter formats)
   — we pin to the v1 endpoint shape and will track changes reactively.
 
-### Milestone 2 — OAuth + WebSocket realtime  ⏳
+### Milestone 2 — OAuth + WebSocket realtime  🔄 (built, being reshaped)
 
 **Goal:** Push-based realtime updates for users willing to authenticate
 with email + password instead of (or in addition to) the `auth_key`.
+
+> **Status and an important finding.** The OAuth flow and the WebSocket
+> client are implemented and verified against a live account, but this
+> milestone is **not released** — research in July 2026 showed that cloud
+> realtime push is narrower than assumed:
+>
+> - Push **works** for devices the account **owns** (sub-second, no explicit
+>   subscribe needed).
+> - Push does **not** work for devices **shared to** the account — the very
+>   case this integration exists for. Status requests for a shared device
+>   return `WRONG_ID`, subscribe attempts return `BAD_REQUEST`, and a
+>   passive listen yields no frames at all.
+> - Battery-powered and BLU devices sleep and therefore never push,
+>   regardless of ownership.
+>
+> So realtime cannot replace polling — it can only sit **in front of** it.
+> The shipped design will be push for owned devices with an automatic
+> polling fallback for shared and sleeping ones, which means the user-facing
+> promise is "faster where possible, never worse". A clarification request
+> is open with Shelly; if push for shared devices is intentionally
+> unavailable, the fallback stays permanent.
 
 Changes:
 - Add OAuth code flow to `config_flow.py`:
@@ -138,8 +173,10 @@ Changes:
 - Bring back `api/websocket.py` (architecturally reused from the
   pre-pivot Integrator-API era — the WSS endpoint format is identical)
   and use OAuth `access_token` as the `t=` URL parameter.
-- Swap coordinator's polling loop for WebSocket event subscription
-  (`Shelly:StatusOnChange`, `Shelly:Online`, `Shelly:CommandResponse`).
+- ~~Swap coordinator's polling loop for~~ **Put in front of the polling
+  loop** a WebSocket event subscription (`Shelly:StatusOnChange`,
+  `Shelly:Online`, `Shelly:CommandResponse`), with polling retained as the
+  fallback path for shared and sleeping devices.
 - Access-token lifecycle: track expiry, refresh proactively, fall back to
   re-OAuth if refresh fails.
 - Options flow: let the user switch between Simple (auth_key / polling)
@@ -148,12 +185,19 @@ Changes:
 Non-goals in M2:
 - Per-device webhook subscriptions (the WebSocket delivers everything).
 
-### Milestone 3 — HACS default-store submission  💡
+### Milestone 3 — HACS default-store submission  ✅
 
 **Goal:** Entry in the [HACS default integration list](https://github.com/hacs/default),
 so that users no longer need to add this as a custom repository URL.
 
-Prerequisites:
+**Done** — the integration is in the HACS default store and installable
+without adding a custom repository. One caveat carried over: the icon in
+the HACS overview list cannot be fixed from this repository (the
+`home-assistant/brands` path no longer applies to custom integrations since
+HA 2026.3); the integration ships a local `brand/` folder instead, which
+HA serves for the device and entity pages.
+
+Prerequisites (all met):
 - Logo submission to [home-assistant/brands](https://github.com/home-assistant/brands)
   as `core_integrations/shelly_cloud_diy/{icon.png,logo.png}` — clean
   variants without the `notDIRK` wordmark and fork symbol will be
@@ -165,14 +209,18 @@ Prerequisites:
 - Optional: simple GitHub Actions CI that runs lint and any existing
   tests on push / PR.
 
-### Milestone 4 — Quality-scale improvements  💡
+### Milestone 4 — Quality-scale improvements  🔄 (partly landed)
 
 Path to HA Core quality-scale `silver` / `gold`:
-- `async_get_config_entry_diagnostics` for sanitized export.
-- `repairs` platform for actionable issue flags (rate-limit exhaustion,
-  token expiry, etc.).
-- Test coverage target ≥ 70 %.
-- CI: lint, type-check (mypy), test matrix against supported HA versions.
+- ✅ `async_get_config_entry_diagnostics` for sanitized export — shipped
+  (`diagnostics.py`), and it is what makes remote issue triage possible.
+- ⏳ `repairs` platform for actionable issue flags (rate-limit exhaustion,
+  token expiry, etc.) — planned as the follow-up to M2, because the states
+  worth surfacing are mostly realtime/auth states.
+- ⏳ Test coverage target ≥ 70 %.
+- 🔄 CI: lint, type-check (mypy), test matrix against supported HA versions
+  — GitHub Actions runs hassfest + HACS validation today; local test runs
+  cover the oldest and newest supported HA release.
 
 (Not committed to a timeline — gated on whether a Core submission
 materialises as a goal.)
@@ -181,7 +229,7 @@ materialises as a goal.)
 
 | Project | Auth method | Realtime | Shared devices | Maintained | Notes |
 |---|---|---|---|---|---|
-| **`notDIRK/shelly-cloud-diy-ha`** (this repo) | `auth_key` (M1) / OAuth (M2) | HTTP poll 5 s (M1) / WebSocket push (M2) | ✅ | 🔄 active | Full Gen1 + Gen2 + BLE-gateway coverage |
+| **`notDIRK/shelly-cloud-diy-ha`** (this repo) | `auth_key` (shipped) / OAuth (M2, built) | HTTP poll 5 s today; WebSocket push for owned devices planned, with poll fallback | ✅ | 🔄 active | Full Gen1 + Gen2 + Gen3 + BLE-gateway coverage |
 | [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | Integrator API token (gated by Shelly) | WebSocket push | ❌ (consent-flow is per-owner) | ✅ active | Private users typically cannot obtain the token |
 | [`home-assistant/core` Shelly integration](https://www.home-assistant.io/integrations/shelly/) | Local LAN (mDNS / direct IP) | LAN push | ❌ (remote / shared devices not reachable over LAN) | ✅ maintained by HA Core | Mainstream; requires LAN reachability |
 | [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Local LAN | LAN push | ❌ | ❌ *"ShellyForHass will no longer receive further development updates"* per README | Folded into HA Core |
@@ -191,7 +239,7 @@ materialises as a goal.)
 
 The short version: there is currently **no other maintained HA
 integration that combines Cloud-Control-API-based access with state
-reading AND shared-device support AND Gen1/Gen2/BLE coverage**. The gap
+reading AND shared-device support AND Gen1/Gen2/Gen3/BLE coverage**. The gap
 is real, which is why this project exists.
 
 ## Rate limits, latency, and honest expectations
@@ -214,11 +262,15 @@ is real, which is why this project exists.
   poll interval. For weather station / energy metering use cases this is
   a non-issue; for light-switch feedback it can feel gentle.
 
-**Milestone 2 traffic profile (future):**
-- Outbound poll traffic: **0 bytes** steady state; events push from
-  Shelly Cloud as they happen.
-- Latency: **< 100 ms** for state propagation from device → Shelly Cloud
-  → HA.
+**Milestone 2 traffic profile (planned, revised):**
+- Outbound poll traffic: **reduced, not eliminated.** Owned, mains-powered
+  devices are served by push; shared and battery/BLU devices keep being
+  polled, so the steady-state figure depends on how much of your fleet is
+  shared. An earlier version of this document promised "0 bytes steady
+  state" — that was written before the shared-device finding above and was
+  wrong.
+- Latency: **< 100 ms** for state propagation on push-eligible devices;
+  unchanged poll latency (p50 ≈ 2.5 s) for the rest.
 - Cost: single persistent WebSocket connection per HA instance; one
   OAuth re-auth roughly every 24 hours.
 
