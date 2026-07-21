@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +59,15 @@ _DEFAULT_TIMEOUT_S = 10
 # keeps the window open while rejected requests keep arriving; ~1.5 s reliably
 # clears a single trip in testing (1.2 s was borderline). (#6)
 _RATE_LIMIT_BACKOFF_S = 1.5
+
+# Virtual-component status/config keys look like ``number:200`` / ``boolean:201``.
+# Only these are kept from the v2 ``settings`` block; switch/script/sys/etc. are
+# dropped so the cached config stays small. (#9)
+_VIRTUAL_COMPONENT_KEY_RE = re.compile(r"^(number|enum|text|boolean):\d+$")
+
+# Max device ids per v2 ``/devices/api/get`` request. Shelly caps the batch;
+# 10 is conservative and keeps each request light. (#9)
+_V2_CONFIG_BATCH = 10
 
 
 class ShellyCloudError(Exception):
@@ -382,6 +392,79 @@ class ShellyCloudControl:
             isok=(body.get("isok") is not False),
             well_formed=well_formed,
         )
+
+    async def get_device_configs(
+        self, ids: list[str]
+    ) -> dict[str, dict[str, dict]]:
+        """Fetch per-virtual-component config for ``ids`` via the v2 API.
+
+        POSTs to ``/v2/devices/api/get`` with a JSON body of
+        ``{"auth_key": …, "ids": [...], "select": ["settings"]}`` — the
+        auth_key rides in the BODY for this v2 endpoint, not as a Bearer
+        header or query param. The response is a JSON ARRAY of
+        ``{"id": <device_id>, "settings": {<component_key>: <config>, …}}``.
+
+        For virtual components the ``settings`` entries are keyed exactly
+        like the status keys (``number:200``, ``boolean:201``, …) and carry
+        the config the cloud status omits: the user-set ``name``, the number
+        ``meta.ui.unit``, and the enum ``options`` / ``meta.ui.titles``.
+
+        Only virtual-component keys are kept; every other settings key
+        (``switch:0``, ``script:1``, ``sys``, …) is dropped to keep the
+        cached config small. ids are batched into chunks of
+        ``_V2_CONFIG_BATCH`` with a pause between chunks to respect the
+        shared 1 req/s budget.
+
+        Args:
+            ids: Device ids to fetch config for.
+
+        Returns:
+            ``{device_id: {component_key: config_dict}}`` for every device
+            that returned at least one virtual-component config. Devices
+            with no virtual-component settings are omitted.
+
+        Raises:
+            ShellyCloudAuthError: auth_key rejected.
+            ShellyCloudError: transport / rate-limit / protocol failure.
+        """
+        result: dict[str, dict[str, dict]] = {}
+        if not ids:
+            return result
+
+        for offset in range(0, len(ids), _V2_CONFIG_BATCH):
+            chunk = ids[offset:offset + _V2_CONFIG_BATCH]
+            if offset:
+                # Space successive requests out under the 1 req/s limit.
+                await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
+            payload = {
+                "auth_key": self._auth_key,
+                "ids": chunk,
+                "select": ["settings"],
+            }
+            data = await self._post_json("/v2/devices/api/get", payload)
+            if not isinstance(data, list):
+                continue
+            for record in data:
+                if not isinstance(record, dict):
+                    continue
+                did = record.get("id")
+                if not isinstance(did, str):
+                    continue
+                settings = record.get("settings")
+                if not isinstance(settings, dict):
+                    continue
+                comp_configs: dict[str, dict] = {}
+                for key, cfg in settings.items():
+                    if (
+                        isinstance(key, str)
+                        and _VIRTUAL_COMPONENT_KEY_RE.match(key)
+                        and isinstance(cfg, dict)
+                    ):
+                        comp_configs[key] = cfg
+                if comp_configs:
+                    result[did] = comp_configs
+
+        return result
 
     # ── Command endpoints ──────────────────────────────────────────────
 

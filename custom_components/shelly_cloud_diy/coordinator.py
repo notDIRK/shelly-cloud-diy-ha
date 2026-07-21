@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,11 @@ from .const import (
 # Gap between the v1 poll completing and the v2 name lookup firing, so we
 # stay under the 1 req/s per-account rate limit that both endpoints share.
 _V2_NAME_LOOKUP_GAP_S = 1.2
+
+# Status/config keys of Gen2/Gen3 virtual components (``number:200``, …). Used
+# to decide which online devices need a one-time v2 config fetch so their
+# read-only virtual entities can render real names/units/options. (#9)
+_VIRTUAL_COMPONENT_KEY_RE = re.compile(r"^(number|enum|text|boolean):\d+$")
 
 # Delay before the post-command status refresh (seconds). Long enough for the
 # Shelly Cloud to propagate the new state (so the poll confirms rather than
@@ -105,6 +111,13 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.device_names: dict[str, str] = {}
         # Populated by ``_refresh_device_names`` when it schedules itself.
         self._name_lookup_in_flight = False
+        # Cache of device_id → {component_key → v2 config dict} for Gen2/Gen3
+        # virtual components. Fetched lazily once per device (config changes
+        # rarely) so the read-only virtual entities can show real names,
+        # units and enum options instead of generic labels. (#9)
+        self.virtual_configs: dict[str, dict[str, dict]] = {}
+        # Populated by ``_refresh_virtual_configs`` when it schedules itself.
+        self._vcomp_config_in_flight = False
 
     # ── Properties platform code may inspect ──────────────────────────
 
@@ -209,6 +222,9 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 # Seed with whatever we already resolved via the v2 name
                 # lookup; stays None until that lookup succeeds.
                 "name": self.device_names.get(device_id),
+                # Seed cached virtual-component config (real names/units/
+                # options); stays None until the v2 config fetch succeeds. (#9)
+                "virtual_config": self.virtual_configs.get(device_id),
             }
 
         # Fire SIGNAL_NEW_DEVICE only for devices the user has actually
@@ -235,6 +251,24 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         if unresolved and not self._name_lookup_in_flight:
             self._name_lookup_in_flight = True
             self.hass.async_create_task(self._refresh_device_names(unresolved))
+
+        # Schedule a one-time v2 config fetch for any ONLINE device whose
+        # status carries at least one virtual component we haven't resolved
+        # yet, so the read-only virtual entities can render real names, units
+        # and enum options. Config changes rarely, so once a device is in
+        # ``virtual_configs`` it is never re-fetched. (#9)
+        needs_config = [
+            did for did, info in new_devices.items()
+            if did not in self.virtual_configs
+            and info.get("online")
+            and any(
+                isinstance(k, str) and _VIRTUAL_COMPONENT_KEY_RE.match(k)
+                for k in info.get("status", {})
+            )
+        ]
+        if needs_config and not self._vcomp_config_in_flight:
+            self._vcomp_config_in_flight = True
+            self.hass.async_create_task(self._refresh_virtual_configs(needs_config))
 
         return new_devices
 
@@ -303,6 +337,62 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             )
 
         # Push updated device_info to platforms without waiting for next poll.
+        self.async_update_listeners()
+
+    async def _refresh_virtual_configs(self, ids: list[str]) -> None:
+        """Fetch virtual-component config for ``ids`` via the v2 API and cache it.
+
+        Mirrors :meth:`_refresh_device_names`: runs as a background task after
+        ``_async_update_data`` completes, then batches every requested id into
+        the v2 settings endpoint. The config carries the user-set name, the
+        number unit and the enum options that the cloud status omits, so the
+        read-only virtual entities can render them.
+
+        Waits ``2 * _V2_NAME_LOOKUP_GAP_S`` before firing — double the
+        name-lookup gap — so that on the first poll (when both this task and
+        :meth:`_refresh_device_names` are scheduled together) the two v2/v1
+        requests do not fire back-to-back and trip the shared 1 req/s budget
+        (``401 max_req``). Staggering keeps both under the rate limit instead
+        of relying on the request-retry backoff to mask the collision.
+
+        Failures are logged at debug level — a missing config just means the
+        entities keep their generic names, not worth an ``UpdateFailed``. Every
+        requested id is recorded (with an empty map when it returned no
+        virtual-component config) so a device is never re-fetched, exactly like
+        cached names. (#9)
+        """
+        try:
+            # Double the gap so this v2 lookup lands after the name lookup
+            # rather than alongside it — see the rate-limit note above.
+            await asyncio.sleep(2 * _V2_NAME_LOOKUP_GAP_S)
+            configs = await self._api.get_device_configs(ids)
+        except ShellyCloudAuthError:
+            _LOGGER.debug("v2 virtual-component config lookup rejected auth_key — skipping")
+            return
+        except ShellyCloudError as err:
+            _LOGGER.debug("v2 virtual-component config lookup failed: %s", err)
+            return
+        finally:
+            self._vcomp_config_in_flight = False
+
+        # Mark every requested id resolved so it is never re-fetched, seeding
+        # an empty map for devices that returned no virtual-component config.
+        for did in ids:
+            self.virtual_configs.setdefault(did, {})
+        if configs:
+            self.virtual_configs.update(configs)
+        for did in ids:
+            entry = self.devices.get(did)
+            if entry is not None:
+                entry["virtual_config"] = self.virtual_configs.get(did)
+
+        if configs:
+            _LOGGER.info(
+                "Resolved virtual-component config for %d device(s) via v2 API",
+                len(configs),
+            )
+
+        # Re-render entities with the real names/units/options straight away.
         self.async_update_listeners()
 
     # ── Command dispatch (compat shim for platform files) ─────────────

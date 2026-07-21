@@ -381,7 +381,133 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, attr
                         ))
 
+    # Virtual components (READ-ONLY) — Gen2/Gen3 "virtual" number/enum/text
+    # components (e.g. created by a script or a Wall Display) surface their
+    # current value under ``<type>:<id>.value`` in the cloud status. We expose
+    # them read-only because the cloud status carries no component *config*
+    # (name / min / max / options / writable-view) and the Cloud Control API
+    # has no documented virtual-component write method — a controllable version
+    # needs both. Boolean is handled in binary_sensor.py; button carries no
+    # value (it is an action) and is skipped. (#9)
+    for key in status:
+        if match := re.match(r"(number|enum|text):(\d+)", key):
+            comp_type = match.group(1)
+            idx = int(match.group(2))
+            data = status[key]
+            if isinstance(data, dict) and "value" in data:
+                uid = f"{device_id}_{key}_value"
+                if uid not in created:
+                    created.add(uid)
+                    entities.append(RpcVirtualSensor(
+                        coordinator, device_id, comp_type, idx, key
+                    ))
+
     return entities
+
+
+class RpcVirtualSensor(ShellyBaseEntity, SensorEntity):
+    """Read-only Gen2/Gen3 virtual component (number / enum / text).
+
+    The cloud status exposes only the live ``value``. The component *config*
+    (real name, number unit, enum options) is fetched lazily in the background
+    via the v2 settings endpoint and cached on the coordinator; this entity
+    enriches itself from that cache when it arrives. Until then — or if the
+    config is missing entirely — it falls back to a generic name (e.g.
+    "Number 200") with no unit, i.e. the original read-only behaviour. The
+    live value is always mirrored read-only (no controllable write path in the
+    Cloud Control API). (#9)
+    """
+
+    _VIRTUAL_ICONS = {
+        "number": "mdi:numeric",
+        "enum": "mdi:format-list-bulleted",
+        "text": "mdi:text-short",
+    }
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        comp_type: str,
+        comp_id: int,
+        component_key: str,
+    ) -> None:
+        """Initialize the virtual-component sensor."""
+        super().__init__(coordinator, device_id, 0)
+        self._comp_type = comp_type
+        self._component_key = component_key
+        self._attr_unique_id = f"{device_id}_{component_key}_value"
+        # Generic fallback used until (or unless) the v2 config resolves. The
+        # name is a PROPERTY, not baked into ``_attr_name``, because the config
+        # arrives via a background task after the entity is created.
+        self._generic_name = f"{comp_type.capitalize()} {comp_id}"
+        icon = self._VIRTUAL_ICONS.get(comp_type)
+        if icon:
+            self._attr_icon = icon
+
+    @property
+    def name(self) -> str:
+        """Return the user-set component name, or the generic fallback."""
+        config = self.virtual_component_config(self._component_key)
+        if isinstance(config, dict):
+            name = config.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        return self._generic_name
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the number component's unit from ``meta.ui.unit`` if present."""
+        if self._comp_type != "number":
+            return None
+        config = self.virtual_component_config(self._component_key)
+        if not isinstance(config, dict):
+            return None
+        meta = config.get("meta")
+        if not isinstance(meta, dict):
+            return None
+        ui = meta.get("ui")
+        if not isinstance(ui, dict):
+            return None
+        unit = ui.get("unit")
+        if isinstance(unit, str) and unit:
+            return unit
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose enum options / titles as attributes (safe, non-device-class).
+
+        We deliberately keep the sensor a plain string sensor rather than a
+        ``SensorDeviceClass.ENUM``: the live value might not be one of the
+        configured options, which would spam HA with warnings. Surfacing the
+        options as attributes gives dashboards the metadata without that risk.
+        """
+        if self._comp_type != "enum":
+            return None
+        config = self.virtual_component_config(self._component_key)
+        if not isinstance(config, dict):
+            return None
+        attrs: dict[str, Any] = {}
+        options = config.get("options")
+        if isinstance(options, list):
+            attrs["options"] = options
+        meta = config.get("meta")
+        if isinstance(meta, dict):
+            ui = meta.get("ui")
+            if isinstance(ui, dict):
+                titles = ui.get("titles")
+                if isinstance(titles, dict):
+                    attrs["titles"] = titles
+        return attrs or None
+
+    @property
+    def native_value(self) -> float | int | str | None:
+        """Return the virtual component's current value."""
+        component = self.device_status.get(self._component_key)
+        if not isinstance(component, dict):
+            return None
+        return component.get("value")
 
 
 class BlockSensor(ShellyBaseEntity, SensorEntity):
