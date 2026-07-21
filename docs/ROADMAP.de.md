@@ -15,15 +15,15 @@ die **Integrator API** nutzt, zu der Shelly wörtlich dokumentiert:
 kommerzieller Integrator-Freigabeprozess nötig, durch den die meisten
 Privatanwender nie durchkommen.
 
-Dieses Projekt ist ein Hard-Fork von oben genanntem Upstream, den wir nur
-wegen Git-History-Nachvollziehbarkeit behalten. Weitere Upstream-Merges
+Dieses Projekt ist ein Hard-Fork von oben genanntem Upstream, den ich nur
+wegen Git-History-Nachvollziehbarkeit behalte. Weitere Upstream-Merges
 sind nicht vorgesehen.
 
 ## Scope-Ziel
 
 - **Erreicht:** Installierbar via **HACS** — die Integration liegt im
   HACS-Default-Store, eine Custom-Repository-URL braucht es nicht mehr.
-- **Derzeit kein Ziel:** Aufnahme in **Home Assistant Core**. Wir halten
+- **Derzeit kein Ziel:** Aufnahme in **Home Assistant Core**. Ich halte
   den Code stilistisch Core-kompatibel (keine Personennamen im Quellcode,
   englische Logmeldungen, ordentliche Exception-Typen, Übersetzungen) —
   aber der volle Core-Qualitätsstandard wird nicht nach Plan ausgebaut.
@@ -151,8 +151,9 @@ Ausdrücklich dokumentierte Einschränkungen, die User kennen müssen:
   Realität um bis zu ~5 Sekunden hinterher; Schaltbefehle gehen sofort
   raus, die Latenz betrifft nur die State-*Beobachtung*.
 - **HTTP-Endpunkte sind laut Shelly absichtlich nur grob dokumentiert**
-  (Shelly behält sich Parameterformat-Änderungen vor) — wir pinnen auf
-  die aktuelle v1-Endpunkt-Form und reagieren auf Änderungen reaktiv.
+  (Shelly behält sich Parameterformat-Änderungen vor) — die Integration
+  pinnt auf die aktuelle v1-Endpunkt-Form und reagiert auf Änderungen
+  reaktiv.
 
 ### Meilenstein 2 — OAuth + WebSocket-Realtime  🔄 (gebaut, wird umgebaut)
 
@@ -256,8 +257,8 @@ Ziel wird.)
 | [`home-assistant/core` Shelly-Integration](https://www.home-assistant.io/integrations/shelly/) | Lokal per LAN (mDNS / direkte IP) | LAN-Push | ❌ (entfernte / geteilte Geräte übers LAN nicht erreichbar) | ✅ vom HA-Core-Team gepflegt | Mainstream; braucht LAN-Erreichbarkeit |
 | [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Lokal per LAN | LAN-Push | ❌ | ❌ *"ShellyForHass will no longer receive further development updates"* laut eigener README | In HA Core aufgegangen |
 | [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | Username/Passwort (reverse-engineered Browser-Calls) | HTTP-Polling | ? | ❌ letzter Commit 2019 | Nur Switches; README warnt, dass HTTP-Parsing fragil ist |
-| [HA-YAML-Blueprint](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` (wie wir) | ❌ nur Commands | ? | ✅ Community-maintained | *"The device state is not updated from the cloud"* — State ist nicht lesbar |
-| [`corenting/poc_shelly_cloud_control_api_ws`](https://github.com/corenting/poc_shelly_cloud_control_api_ws) | OAuth | WebSocket-Push | ? | Explizit als POC markiert, keine Integration | Referenz-Implementierung für unseren M2-OAuth-Flow |
+| [HA-YAML-Blueprint](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` (wie dieses Projekt) | ❌ nur Commands | ? | ✅ Community-maintained | *"The device state is not updated from the cloud"* — State ist nicht lesbar |
+| [`corenting/poc_shelly_cloud_control_api_ws`](https://github.com/corenting/poc_shelly_cloud_control_api_ws) | OAuth | WebSocket-Push | ? | Explizit als POC markiert, keine Integration | Referenz-Implementierung für den M2-OAuth-Flow hier |
 
 Kurzfassung: Aktuell existiert **keine andere gepflegte HA-Integration,
 die Cloud-Control-API-Zugriff MIT State-Read UND Shared-Device-Support
@@ -311,4 +312,4 @@ Account (Quelle: [Shelly Cloud Control API Docs, Getting Started](https://shelly
 - Meilenstein 1 speichert weder Mail noch Passwort.
 - Meilenstein 2 (OAuth) sendet `sha1(passwort)` beim initialen Login an
   `api.shelly.cloud/oauth/login`; der resultierende `access_token` wird
-  in `entry.data` gespeichert. Das Passwort selbst speichern wir nicht.
+  in `entry.data` gespeichert. Das Passwort selbst wird nie gespeichert.

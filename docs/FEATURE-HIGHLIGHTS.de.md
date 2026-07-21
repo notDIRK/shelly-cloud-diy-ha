@@ -85,8 +85,8 @@ Cloud-eingebundene **und** lokal-eingebundene Shellys.
   Gerät, Namen, Bereiche, **Langzeit-Verlauf** und jeden Bezug aus Automationen,
   Skripten, Szenen und Dashboards — inklusive aufgesetzter Helfer (z. B.
   *Switch-as-Light*).
-- **Funktioniert über beide Integrationen:** unsere Cloud-Geräte schon heute; die
-  native lokale Shelly-Integration über dieselbe MAC-Brücke.
+- **Funktioniert über beide Integrationen:** die Cloud-Geräte dieser Integration
+  schon heute; die native lokale Shelly-Integration über dieselbe MAC-Brücke.
 - **Cloud als Sicherheitsnetz:** holt Identität und Namen des defekten Geräts aus
   der Cloud, selbst wenn die Hardware schon weg und lokal nicht mehr lesbar ist.
 - **Trockenlauf-Vorschau:** genau sehen, was sich ändert, bevor etwas angefasst
@@ -94,7 +94,7 @@ Cloud-eingebundene **und** lokal-eingebundene Shellys.
 - **Beitrag zurück:** die native Variante wurde **Upstream an Home Assistant Core
   eingereicht** ([core#174581](https://github.com/home-assistant/core/pull/174581),
   nach dem Vorbild des ESPHome-Tausch-Repair-Flows), damit alle HA-Nutzer
-  profitieren, nicht nur unsere.
+  profitieren, nicht nur die dieser Integration.
 
 ---
 
@@ -119,7 +119,7 @@ Resilienz.
 - **Maximale Resilienz:** On-Device-Logik läuft ohne Cloud und ohne HA weiter.
 - **Ehrlich bei den Grenzen:** MAC, Passwörter und Rollladen-Kalibrierung sind
   nicht übertragbar — sie werden am neuen Gerät neu eingetragen bzw. neu
-  kalibriert. Das sagen wir offen.
+  kalibriert. Das sage ich offen.
 
 ---
 

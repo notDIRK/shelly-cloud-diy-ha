@@ -82,8 +82,8 @@ locally‑integrated Shellys.
   device, names, areas, **long‑term history**, and every automation, script,
   scene, and dashboard reference — including helpers stacked on top (e.g.
   *Switch‑as‑Light*).
-- **Works across both integrations:** our cloud devices today; the native local
-  Shelly integration via the same MAC bridge.
+- **Works across both integrations:** this integration's cloud devices today;
+  the native local Shelly integration via the same MAC bridge.
 - **Cloud as a safety net:** pulls the dead device's identity and name from the
   cloud even when the hardware is already gone and can no longer be read locally.
 - **Dry‑run preview:** see exactly what will change before anything is touched.
@@ -113,7 +113,7 @@ the device keeps behaving identically — the strongest form of offline resilien
   webhooks, and KVS — over the local network (LAN), not the cloud.
 - **Maximum resilience:** on‑device logic keeps working with no cloud and no HA.
 - **Honest about limits:** the MAC, passwords, and roller/cover calibration
-  cannot be transferred — they are re‑entered or re‑run on the new device. We say
+  cannot be transferred — they are re‑entered or re‑run on the new device. I say
   so up front.
 
 ---

@@ -137,7 +137,8 @@ Explicitly documented limitations users must know:
   state *observation*.
 - **HTTP endpoints are documented by Shelly as intentionally
   underdocumented** (they reserve the right to change parameter formats)
-  — we pin to the v1 endpoint shape and will track changes reactively.
+  — this integration pins to the v1 endpoint shape and tracks changes
+  reactively.
 
 ### Milestone 2 — OAuth + WebSocket realtime  🔄 (built, being reshaped)
 
@@ -234,8 +235,8 @@ materialises as a goal.)
 | [`home-assistant/core` Shelly integration](https://www.home-assistant.io/integrations/shelly/) | Local LAN (mDNS / direct IP) | LAN push | ❌ (remote / shared devices not reachable over LAN) | ✅ maintained by HA Core | Mainstream; requires LAN reachability |
 | [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Local LAN | LAN push | ❌ | ❌ *"ShellyForHass will no longer receive further development updates"* per README | Folded into HA Core |
 | [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | Username/password (reverse-engineered browser calls) | HTTP polling | ? | ❌ last push 2019 | Switches only; README warns HTTP parsing is fragile |
-| [HA YAML Blueprint](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` (same as us) | ❌ command-only | ? | ✅ community-maintained | *"The device state is not updated from the cloud"* — cannot read state back |
-| [`corenting/poc_shelly_cloud_control_api_ws`](https://github.com/corenting/poc_shelly_cloud_control_api_ws) | OAuth | WebSocket push | ? | Explicitly labelled POC, not an integration | Reference implementation for our M2 OAuth flow |
+| [HA YAML Blueprint](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` (same as this project) | ❌ command-only | ? | ✅ community-maintained | *"The device state is not updated from the cloud"* — cannot read state back |
+| [`corenting/poc_shelly_cloud_control_api_ws`](https://github.com/corenting/poc_shelly_cloud_control_api_ws) | OAuth | WebSocket push | ? | Explicitly labelled POC, not an integration | Reference implementation for the M2 OAuth flow here |
 
 The short version: there is currently **no other maintained HA
 integration that combines Cloud-Control-API-based access with state
@@ -285,5 +286,5 @@ is real, which is why this project exists.
 - Milestone 1 does not store email or password.
 - Milestone 2 (OAuth) sends `sha1(password)` to
   `api.shelly.cloud/oauth/login` during the initial login; the resulting
-  `access_token` is stored in `entry.data`. We do not store the password
-  itself.
+  `access_token` is stored in `entry.data`. The password itself is never
+  stored.
