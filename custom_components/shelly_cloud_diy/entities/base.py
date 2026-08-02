@@ -199,5 +199,24 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
-        return self.device_data.get("online", False)
+        """Return if entity is available.
+
+        Normally this is the cloud's transport flag. Deep-sleep battery
+        devices are the exception: they are awake only a few seconds per
+        wakeup period, and the snapshot Shelly Cloud caches for them is
+        captured seconds after boot — before the cloud session is up — so
+        their ``cloud.connected`` reads ``false`` permanently while the
+        readings in that very snapshot are current. For those devices the
+        coordinator stamps a deadline for the last check-in, and staying
+        available means still being inside it. Same contract as the native
+        Shelly integration in HA core. (#13)
+        """
+        device_data = self.device_data
+        if device_data.get("online", False):
+            return True
+        if not device_data.get("sleeping"):
+            return False
+        stale_at = device_data.get("sleep_stale_at")
+        if not isinstance(stale_at, (int, float)):
+            return True
+        return time.monotonic() < stale_at

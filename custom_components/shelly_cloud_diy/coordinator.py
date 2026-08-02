@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +51,35 @@ _V2_NAME_LOOKUP_GAP_S = 1.2
 # read-only virtual entities can render real names/units/options. (#9)
 _VIRTUAL_COMPONENT_KEY_RE = re.compile(r"^(number|enum|text|boolean):\d+$")
 
+# ── Deep-sleep (battery) device freshness ─────────────────────────────
+#
+# Battery devices (H&T, Flood, Door/Window, …) are awake for a few seconds
+# every ``sys.wakeup_period`` and spend the rest in deep sleep. Shelly Cloud
+# keeps serving the last snapshot such a device pushed, and that snapshot is
+# typically captured seconds after boot — before the device's cloud session
+# is up. So ``cloud.connected`` is ``false`` in it and stays false forever,
+# even though the readings it carries are current. Availability therefore
+# cannot be derived from the transport flag for these devices; it has to come
+# from "is the device still checking in?". (#13)
+#
+# Multiplier applied to ``wakeup_period`` to get the staleness window. Matches
+# ``UPDATE_PERIOD_MULTIPLIER`` in HA core's native Shelly integration, so a
+# device that misses a single check-in is still considered alive but one that
+# stops reporting altogether goes unavailable.
+SLEEP_STALE_MULTIPLIER = 2.2
+
+# Period assumed for a device that reports itself sleeping but exposes no
+# usable ``wakeup_period`` (Gen1 battery devices publish no such field).
+SLEEP_ASSUMED_PERIOD_S = 2 * 3600
+
+# Lower bound on the staleness window. Deliberately generous — briefly showing
+# a dead device as available is far less harmful than flapping a working one.
+SLEEP_STALE_FLOOR_S = 4 * 3600
+
+# Hard ceiling on the staleness window, so a device configured with an absurd
+# wakeup period cannot stay "available" indefinitely after it dies.
+SLEEP_STALE_CAP_S = 24 * 3600
+
 # Delay before the post-command status refresh (seconds). Long enough for the
 # Shelly Cloud to propagate the new state (so the poll confirms rather than
 # reverts the optimistic entity state) and to keep the command + its refresh
@@ -62,6 +92,55 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def sleep_period_s(status: dict[str, Any]) -> int:
+    """Return the deep-sleep period of ``status`` in seconds, 0 if not sleeping.
+
+    A non-zero result marks the device as a battery/deep-sleep device, which
+    is what :attr:`ShellyBaseEntity.available` keys off. Gen2/Gen3 devices
+    publish ``sys.wakeup_period``; devices that only carry the cloud's
+    ``_sleeping`` marker fall back to :data:`SLEEP_ASSUMED_PERIOD_S`.
+
+    A device running off external power is never treated as sleeping, even
+    when it still carries a ``wakeup_period`` from its battery days — it is
+    permanently connected, so the transport flag is meaningful again and an
+    offline reading means the device really is gone. (#13)
+    """
+    if not isinstance(status, dict):
+        return 0
+
+    power = status.get("devicepower:0")
+    external = power.get("external") if isinstance(power, dict) else None
+    if isinstance(external, dict) and external.get("present") is True:
+        return 0
+
+    sys_block = status.get("sys")
+    period = sys_block.get("wakeup_period") if isinstance(sys_block, dict) else None
+    if isinstance(period, (int, float)) and not isinstance(period, bool) and period > 0:
+        return int(period)
+    return SLEEP_ASSUMED_PERIOD_S if status.get("_sleeping") is True else 0
+
+
+def checkin_marker(status: dict[str, Any]) -> tuple[Any, ...]:
+    """Return the fields that change whenever the device pushes a new snapshot.
+
+    Used as a change-detection fingerprint rather than reading any of these
+    as a clock: ``ts`` can lag the rest of the payload by hours, ``_updated``
+    carries no timezone, and device clocks drift. Comparing the fingerprint
+    against the previous poll and stamping *our own* monotonic time when it
+    changes sidesteps all three. (#13)
+    """
+    if not isinstance(status, dict):
+        return ()
+    sys_block = status.get("sys") if isinstance(status.get("sys"), dict) else {}
+    return (
+        status.get("_updated"),
+        status.get("serial"),
+        sys_block.get("unixtime"),
+        sys_block.get("uptime"),
+        status.get("ts"),
+    )
+
+
 class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Poll the Shelly Cloud Control API and publish device state to HA.
 
@@ -71,6 +150,8 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         {
             "status": <full status dict, including _dev_info>,
             "online": bool,
+            "sleeping": bool,
+            "sleep_stale_at": float | None,
             "device_code": str,
             "name": str | None,
         }
@@ -109,6 +190,10 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # new devices appear; we never re-fetch already-known names (they
         # change rarely and cost rate-limit budget).
         self.device_names: dict[str, str] = {}
+        # Ids covered by a completed name lookup, including those the account
+        # has no alias for — keeps a never-renamed device from re-triggering
+        # the lookup on every poll. (#13)
+        self._names_attempted: set[str] = set()
         # Populated by ``_refresh_device_names`` when it schedules itself.
         self._name_lookup_in_flight = False
         # Cache of device_id → {component_key → v2 config dict} for Gen2/Gen3
@@ -118,6 +203,59 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.virtual_configs: dict[str, dict[str, dict]] = {}
         # Populated by ``_refresh_virtual_configs`` when it schedules itself.
         self._vcomp_config_in_flight = False
+        # device_id → (checkin fingerprint, monotonic timestamp of the poll
+        # where that fingerprint first appeared). Drives the staleness window
+        # for deep-sleep battery devices. (#13)
+        self._sleep_seen: dict[str, tuple[tuple, float]] = {}
+
+    # ── Deep-sleep freshness bookkeeping (#13) ────────────────────────
+
+    def _evaluate_sleep_state(
+        self, device_id: str, status: dict[str, Any], now: float
+    ) -> tuple[bool, float | None]:
+        """Return ``(sleeping, stale_at)`` for one device's status snapshot.
+
+        ``sleeping`` marks a deep-sleep battery device — for those the cloud's
+        transport flag is meaningless and availability is decided by whether
+        the device is still checking in. ``stale_at`` is the monotonic
+        deadline at which the last check-in stops counting; ``None`` for
+        devices this does not apply to.
+
+        Returning a deadline rather than a boolean matters when polling breaks:
+        the entity keeps re-evaluating against its own clock, so a sleeping
+        device eventually goes unavailable during a prolonged cloud outage
+        instead of freezing on the last verdict. It also avoids tying
+        availability to ``last_update_success``, which a single transient
+        ``401 max_req`` would flip for the whole fleet at once.
+
+        ``now`` is a monotonic timestamp supplied by the caller so the whole
+        decision stays deterministic and testable.
+        """
+        period = sleep_period_s(status)
+        if not period:
+            # Mains device (or a battery device now on external power) — drop
+            # any history so it cannot leak into a later evaluation, and leave
+            # availability to ``online``.
+            self._sleep_seen.pop(device_id, None)
+            return False, None
+
+        marker = checkin_marker(status)
+        previous = self._sleep_seen.get(device_id)
+        if previous is None or previous[0] != marker:
+            # First sight, or the device pushed a new snapshot: (re)start the
+            # window. First sight counts as a check-in — we have no evidence
+            # the device is gone, and the alternative would make every battery
+            # device unavailable for one window after every HA restart.
+            self._sleep_seen[device_id] = (marker, now)
+            last_seen = now
+        else:
+            last_seen = previous[1]
+
+        window = min(
+            max(period * SLEEP_STALE_MULTIPLIER, SLEEP_STALE_FLOOR_S),
+            SLEEP_STALE_CAP_S,
+        )
+        return True, last_seen + window
 
     # ── Properties platform code may inspect ──────────────────────────
 
@@ -196,6 +334,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             )
 
         new_devices: dict[str, dict[str, Any]] = {}
+        now = time.monotonic()
         for device_id, status in devices_status.items():
             if not isinstance(status, dict):
                 continue
@@ -215,9 +354,18 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 cloud = status.get("cloud")
                 online = bool(cloud.get("connected")) if isinstance(cloud, dict) else False
 
+            # A deep-sleep battery device is "not connected" by construction
+            # between wakes, so its availability comes from whether it is
+            # still checking in rather than from ``online``. (#13)
+            sleeping, sleep_stale_at = self._evaluate_sleep_state(
+                device_id, status, now
+            )
+
             new_devices[device_id] = {
                 "status": status,
                 "online": online,
+                "sleeping": sleeping,
+                "sleep_stale_at": sleep_stale_at,
                 "device_code": code,
                 # Seed with whatever we already resolved via the v2 name
                 # lookup; stays None until that lookup succeeds.
@@ -239,14 +387,32 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
         self._known_device_ids = set(new_devices)
 
+        # Forget check-in history for devices that have been absent from the
+        # poll for longer than the longest window we would ever apply, so
+        # ``_sleep_seen`` cannot grow without bound. Absence alone is not
+        # enough: ``/device/all_status`` intermittently omits devices, and
+        # dropping the history on every omission would restart the window on
+        # each reappearance — a device that flaps in and out would then never
+        # be able to go stale.
+        for gone in set(self._sleep_seen) - set(new_devices):
+            if now - self._sleep_seen[gone][1] > SLEEP_STALE_CAP_S:
+                self._sleep_seen.pop(gone, None)
+
         self.devices = new_devices
 
-        # Schedule a v2 name lookup for any device we haven't resolved yet,
-        # but only for devices currently online (v2 returns no settings
-        # for offline devices so the call is wasted on them).
+        # Schedule a name lookup for any device we haven't resolved yet.
+        # Sleeping devices are included: the lookup hits the account-wide v1
+        # alias listing, which returns aliases regardless of whether a device
+        # is currently connected — gating them out only meant battery sensors
+        # never got their Shelly-app name. Devices already covered by a
+        # completed lookup are excluded even when they came back nameless,
+        # otherwise a device the user never renamed would re-trigger the
+        # lookup on every single poll and burn the shared 1 req/s budget. (#13)
         unresolved = [
             did for did, info in new_devices.items()
-            if did not in self.device_names and info.get("online")
+            if did not in self.device_names
+            and did not in self._names_attempted
+            and (info.get("online") or info.get("sleeping"))
         ]
         if unresolved and not self._name_lookup_in_flight:
             self._name_lookup_in_flight = True
@@ -273,26 +439,33 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         return new_devices
 
     async def _refresh_device_names(self, ids: list[str]) -> None:
-        """Fetch user-set names for ``ids`` via the v2 API and cache them.
+        """Fetch the Shelly-App aliases for ``ids`` and cache them.
 
         Runs as a background task after ``_async_update_data`` completes so
         it does not delay the coordinator's next tick. Waits
         ``_V2_NAME_LOOKUP_GAP_S`` to stay under the shared 1 req/s rate
-        limit, then batches every missing id into a single v2 request.
-        Failures are logged at debug level — a missing name is not worth
-        bubbling up as an UpdateFailed.
+        limit, then covers every missing id with a single request to the
+        account-wide v1 alias listing. Failures are logged at debug level —
+        a missing name is not worth bubbling up as an UpdateFailed.
+
+        Every requested id is recorded in ``_names_attempted`` once the call
+        comes back, including the ones the account has no alias for, so a
+        never-renamed device is not looked up again on the next poll. A failed
+        call records nothing and is therefore retried. (#13)
         """
         try:
             await asyncio.sleep(_V2_NAME_LOOKUP_GAP_S)
             names = await self._api.get_device_names(ids)
         except ShellyCloudAuthError:
-            _LOGGER.debug("v2 name lookup rejected auth_key — skipping")
+            _LOGGER.debug("Device name lookup rejected auth_key — skipping")
             return
         except ShellyCloudError as err:
-            _LOGGER.debug("v2 name lookup failed: %s", err)
+            _LOGGER.debug("Device name lookup failed: %s", err)
             return
         finally:
             self._name_lookup_in_flight = False
+
+        self._names_attempted.update(ids)
 
         if not names:
             return
@@ -302,7 +475,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             entry = self.devices.get(did)
             if entry is not None:
                 entry["name"] = name
-        _LOGGER.info("Resolved %d device name(s) via v2 API", len(names))
+        _LOGGER.info("Resolved %d device name(s) from the cloud alias list", len(names))
 
         # Push the resolved names into the HA device registry so existing
         # DeviceEntry rows (created at integration setup with a fallback
