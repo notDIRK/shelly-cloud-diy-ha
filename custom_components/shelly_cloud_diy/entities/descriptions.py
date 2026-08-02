@@ -808,6 +808,7 @@ class RpcBinarySensorDescription:
     name: str | None = None
     device_class: BinarySensorDeviceClass | None = None
     entity_category: EntityCategory | None = None
+    entity_registry_enabled_default: bool = True
 
 
 RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
@@ -817,12 +818,18 @@ RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
         name="Input",
         device_class=BinarySensorDeviceClass.POWER,
     ),
+    # Disabled by default, matching HA core's native Shelly integration. On a
+    # deep-sleep device this flag is a boot-timing artifact rather than a state:
+    # the cached snapshot is captured seconds after wake, before the cloud
+    # session is established, so it reads false forever while the device is
+    # demonstrably reaching the cloud. (#13)
     "cloud": RpcBinarySensorDescription(
         key="cloud",
         sub_key="connected",
         name="Cloud",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
     ),
 }
 
