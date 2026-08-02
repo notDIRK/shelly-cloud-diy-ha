@@ -427,6 +427,9 @@ class RpcBinarySensor(ShellyBaseEntity, BinarySensorEntity):
             self._attr_device_class = description.device_class
         if description.entity_category:
             self._attr_entity_category = description.entity_category
+        self._attr_entity_registry_enabled_default = (
+            description.entity_registry_enabled_default
+        )
 
     @property
     def is_on(self) -> bool | None:
