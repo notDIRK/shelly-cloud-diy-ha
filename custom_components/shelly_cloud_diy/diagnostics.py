@@ -9,6 +9,7 @@ account's naming.
 """
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -16,6 +17,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .coordinator import sleep_period_s
 from .services.fleet_map import compute_fleet, gather_cloud_devices, to_diagnostics
 
 if TYPE_CHECKING:
@@ -101,5 +103,28 @@ async def async_get_device_diagnostics(
         # Transparency: exactly which keys are stripped from `record` below,
         # so anyone attaching this to a bug report knows what was withheld.
         "redacted_keys": sorted(DEVICE_TO_REDACT),
+        "sleep": _sleep_diagnostics(record),
         "record": async_redact_data(record, DEVICE_TO_REDACT),
+    }
+
+
+def _sleep_diagnostics(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Explain the availability verdict for a deep-sleep battery device.
+
+    The record carries ``sleep_stale_at`` as a raw monotonic timestamp, which
+    means nothing in a dump. Resolving it to "seconds left before this device
+    is considered gone" makes an availability report self-diagnosing. Returns
+    ``None`` for mains devices, where the cloud's ``online`` flag decides. (#13)
+    """
+    if not record.get("sleeping"):
+        return None
+
+    stale_at = record.get("sleep_stale_at")
+    return {
+        "wakeup_period_s": sleep_period_s(record.get("status") or {}),
+        "seconds_until_considered_gone": (
+            round(stale_at - time.monotonic(), 1)
+            if isinstance(stale_at, (int, float))
+            else None
+        ),
     }
