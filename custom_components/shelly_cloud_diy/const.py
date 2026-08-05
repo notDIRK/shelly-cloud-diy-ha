@@ -101,9 +101,26 @@ PLATFORMS: list[Platform] = [
 # reported through Shelly BLU Gateway use the same ``humidity:0`` /
 # ``temperature:0`` shape but are distinguished by ``_dev_info.gen == "GBLE"``
 # (checked first in ``device_gen`` before this structural fallback).
+#
+# This inference is not a nicety: Shelly Cloud sends ``_dev_info`` only for
+# BLE-bridged devices, so for every real Gen2/Gen3 Shelly this pattern is the
+# *only* thing that routes the device to the RPC entity builders instead of
+# the Gen1 block ones — and the block builders find nothing in an RPC status.
+#
+# The energy-meter components are therefore listed explicitly. A relay-less
+# meter (Shelly Pro 3EM) carries nothing but ``em:0`` / ``emdata:0`` and its
+# device temperature, so it used to be recognised purely by the incidental
+# ``temperature:0``; the 2-channel Pro EM-50 got by on its ``switch:0``.
+# Neither is something to rely on.
+#
+# ``cloud`` and ``sys`` were listed here but are *not* components: they carry
+# no ``:<id>`` suffix, so those alternatives could never match and are gone.
+# They must not be re-added with an optional index either — a Gen1 status has
+# a bare ``cloud`` key too, which would classify every Gen1 device as Gen2.
 _GEN2_PATTERN = re.compile(
-    r"(switch|light|cover|input|cloud|sys|temperature|humidity"
-    r"|devicepower|voltmeter|boolean|number|enum|text|button):\d+"
+    r"(switch|light|cover|input|temperature|humidity"
+    r"|devicepower|voltmeter|em1data|em1|emdata|em"
+    r"|boolean|number|enum|text|button):\d+"
 )
 
 
