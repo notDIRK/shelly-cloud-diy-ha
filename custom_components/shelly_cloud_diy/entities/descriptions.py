@@ -718,6 +718,85 @@ RPC_SENSORS: Final[dict[str, RpcSensorDescription]] = {
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
     ),
+    # ------------------------------------------------------------------
+    # Energy Meter — single-phase channels (``em1:<id>`` measurement,
+    # ``em1data:<id>`` counters). Used by the 2-channel meters such as the
+    # Shelly Pro EM-50, which report per-channel values instead of the
+    # phase-prefixed fields of the 3-phase ``em`` component. Each channel is
+    # its own component index, so one description per field suffices —
+    # ``RpcSensor`` appends the channel number to the name for index > 0.
+    # ------------------------------------------------------------------
+    "em1_act_power": RpcSensorDescription(
+        key="em1",
+        sub_key="act_power",
+        name="Active Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_aprt_power": RpcSensorDescription(
+        key="em1",
+        sub_key="aprt_power",
+        name="Apparent Power",
+        native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
+        device_class=SensorDeviceClass.APPARENT_POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_current": RpcSensorDescription(
+        key="em1",
+        sub_key="current",
+        name="Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "em1_voltage": RpcSensorDescription(
+        key="em1",
+        sub_key="voltage",
+        name="Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_freq": RpcSensorDescription(
+        key="em1",
+        sub_key="freq",
+        name="Frequency",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_pf": RpcSensorDescription(
+        key="em1",
+        sub_key="pf",
+        name="Power Factor",
+        device_class=SensorDeviceClass.POWER_FACTOR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "em1data_total_act_energy": RpcSensorDescription(
+        key="em1data",
+        sub_key="total_act_energy",
+        name="Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+    ),
+    "em1data_total_act_ret_energy": RpcSensorDescription(
+        key="em1data",
+        sub_key="total_act_ret_energy",
+        name="Returned Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+    ),
 }
 
 
