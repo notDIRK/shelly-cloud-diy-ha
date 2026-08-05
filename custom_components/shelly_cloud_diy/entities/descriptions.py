@@ -797,6 +797,73 @@ RPC_SENSORS: Final[dict[str, RpcSensorDescription]] = {
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
     ),
+    # ------------------------------------------------------------------
+    # Power meter — ``pm1:<id>``, used by the dedicated meters (Shelly PM
+    # Mini Gen3) and by metered channels of some Gen3 devices.
+    #
+    # Field names differ from the energy-meter components and are taken from
+    # the native HA Shelly integration (``sensor.py``, ``*_pm1``): power is
+    # ``apower`` (not ``act_power``), and the two energy counters are
+    # *nested* dicts — ``aenergy.total`` / ``ret_aenergy.total`` — rather
+    # than flat values, hence the ``value_fn``. There is no ``pm1data``
+    # component; the totals live inside ``pm1`` itself.
+    # ------------------------------------------------------------------
+    "pm1_apower": RpcSensorDescription(
+        key="pm1",
+        sub_key="apower",
+        name="Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_voltage": RpcSensorDescription(
+        key="pm1",
+        sub_key="voltage",
+        name="Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_current": RpcSensorDescription(
+        key="pm1",
+        sub_key="current",
+        name="Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "pm1_freq": RpcSensorDescription(
+        key="pm1",
+        sub_key="freq",
+        name="Frequency",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_aenergy": RpcSensorDescription(
+        key="pm1",
+        sub_key="aenergy",
+        name="Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda value: value.get("total") if isinstance(value, dict) else None,
+    ),
+    "pm1_ret_aenergy": RpcSensorDescription(
+        key="pm1",
+        sub_key="ret_aenergy",
+        name="Returned Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda value: value.get("total") if isinstance(value, dict) else None,
+    ),
 }
 
 

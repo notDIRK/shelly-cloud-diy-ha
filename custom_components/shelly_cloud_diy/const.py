@@ -107,11 +107,12 @@ PLATFORMS: list[Platform] = [
 # *only* thing that routes the device to the RPC entity builders instead of
 # the Gen1 block ones — and the block builders find nothing in an RPC status.
 #
-# The energy-meter components are therefore listed explicitly. A relay-less
+# The metering components are therefore listed explicitly. A relay-less
 # meter (Shelly Pro 3EM) carries nothing but ``em:0`` / ``emdata:0`` and its
 # device temperature, so it used to be recognised purely by the incidental
 # ``temperature:0``; the 2-channel Pro EM-50 got by on its ``switch:0``.
-# Neither is something to rely on.
+# Neither is something to rely on, and a pure ``pm1`` meter (PM Mini Gen3)
+# has neither to fall back on.
 #
 # ``cloud`` and ``sys`` were listed here but are *not* components: they carry
 # no ``:<id>`` suffix, so those alternatives could never match and are gone.
@@ -119,7 +120,7 @@ PLATFORMS: list[Platform] = [
 # a bare ``cloud`` key too, which would classify every Gen1 device as Gen2.
 _GEN2_PATTERN = re.compile(
     r"(switch|light|cover|input|temperature|humidity"
-    r"|devicepower|voltmeter|em1data|em1|emdata|em"
+    r"|devicepower|voltmeter|em1data|em1|emdata|em|pm1"
     r"|boolean|number|enum|text|button):\d+"
 )
 
