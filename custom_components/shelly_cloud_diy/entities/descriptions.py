@@ -718,6 +718,152 @@ RPC_SENSORS: Final[dict[str, RpcSensorDescription]] = {
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
     ),
+    # ------------------------------------------------------------------
+    # Energy Meter — single-phase channels (``em1:<id>`` measurement,
+    # ``em1data:<id>`` counters). Used by the 2-channel meters such as the
+    # Shelly Pro EM-50, which report per-channel values instead of the
+    # phase-prefixed fields of the 3-phase ``em`` component. Each channel is
+    # its own component index, so one description per field suffices —
+    # ``RpcSensor`` appends the channel number to the name for index > 0.
+    # ------------------------------------------------------------------
+    "em1_act_power": RpcSensorDescription(
+        key="em1",
+        sub_key="act_power",
+        name="Active Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_aprt_power": RpcSensorDescription(
+        key="em1",
+        sub_key="aprt_power",
+        name="Apparent Power",
+        native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
+        device_class=SensorDeviceClass.APPARENT_POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_current": RpcSensorDescription(
+        key="em1",
+        sub_key="current",
+        name="Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "em1_voltage": RpcSensorDescription(
+        key="em1",
+        sub_key="voltage",
+        name="Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_freq": RpcSensorDescription(
+        key="em1",
+        sub_key="freq",
+        name="Frequency",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "em1_pf": RpcSensorDescription(
+        key="em1",
+        sub_key="pf",
+        name="Power Factor",
+        device_class=SensorDeviceClass.POWER_FACTOR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "em1data_total_act_energy": RpcSensorDescription(
+        key="em1data",
+        sub_key="total_act_energy",
+        name="Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+    ),
+    "em1data_total_act_ret_energy": RpcSensorDescription(
+        key="em1data",
+        sub_key="total_act_ret_energy",
+        name="Returned Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+    ),
+    # ------------------------------------------------------------------
+    # Power meter — ``pm1:<id>``, used by the dedicated meters (Shelly PM
+    # Mini Gen3) and by metered channels of some Gen3 devices.
+    #
+    # Field names differ from the energy-meter components and are taken from
+    # the native HA Shelly integration (``sensor.py``, ``*_pm1``): power is
+    # ``apower`` (not ``act_power``), and the two energy counters are
+    # *nested* dicts — ``aenergy.total`` / ``ret_aenergy.total`` — rather
+    # than flat values, hence the ``value_fn``. There is no ``pm1data``
+    # component; the totals live inside ``pm1`` itself.
+    # ------------------------------------------------------------------
+    "pm1_apower": RpcSensorDescription(
+        key="pm1",
+        sub_key="apower",
+        name="Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_voltage": RpcSensorDescription(
+        key="pm1",
+        sub_key="voltage",
+        name="Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_current": RpcSensorDescription(
+        key="pm1",
+        sub_key="current",
+        name="Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    "pm1_freq": RpcSensorDescription(
+        key="pm1",
+        sub_key="freq",
+        name="Frequency",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    "pm1_aenergy": RpcSensorDescription(
+        key="pm1",
+        sub_key="aenergy",
+        name="Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda value: value.get("total") if isinstance(value, dict) else None,
+    ),
+    "pm1_ret_aenergy": RpcSensorDescription(
+        key="pm1",
+        sub_key="ret_aenergy",
+        name="Returned Energy",
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda value: value.get("total") if isinstance(value, dict) else None,
+    ),
 }
 
 

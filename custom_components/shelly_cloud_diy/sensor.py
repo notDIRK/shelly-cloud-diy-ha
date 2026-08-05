@@ -381,6 +381,89 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, attr
                         ))
 
+    # Energy meter — single-phase channels (``em1:<idx>`` instantaneous,
+    # ``em1data:<idx>`` cumulative). The 2-channel meters (Shelly Pro EM-50)
+    # use these instead of the phase-prefixed ``em``/``emdata`` fields of the
+    # Pro 3EM, which is why a relay-plus-meter device previously surfaced only
+    # its ``switch:0`` entities. Each channel is its own component index, so
+    # the plain field names are unambiguous. ``calibration`` / ``errors`` /
+    # ``id`` are metadata, not sensors.
+    for key in status:
+        if match := re.match(r"em1:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            for attr, desc_key in [
+                ("act_power", "em1_act_power"),
+                ("aprt_power", "em1_aprt_power"),
+                ("current", "em1_current"),
+                ("voltage", "em1_voltage"),
+                ("freq", "em1_freq"),
+                ("pf", "em1_pf"),
+            ]:
+                if data.get(attr) is None:
+                    continue
+                desc = RPC_SENSORS.get(desc_key)
+                if desc:
+                    uid = f"{device_id}_{key}_{attr}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, attr
+                        ))
+
+    for key in status:
+        if match := re.match(r"em1data:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            for attr, desc_key in [
+                ("total_act_energy", "em1data_total_act_energy"),
+                ("total_act_ret_energy", "em1data_total_act_ret_energy"),
+            ]:
+                if data.get(attr) is None:
+                    continue
+                desc = RPC_SENSORS.get(desc_key)
+                if desc:
+                    uid = f"{device_id}_{key}_{attr}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, attr
+                        ))
+
+    # Power meter — ``pm1:<idx>`` (Shelly PM Mini Gen3 and metered channels of
+    # other Gen3 devices). Field names differ from the energy meters: power is
+    # ``apower``, and the two counters are nested dicts whose ``total`` the
+    # description's ``value_fn`` unwraps — so presence, not ``is None``, is the
+    # right gate here.
+    for key in status:
+        if match := re.match(r"pm1:(\d+)", key):
+            idx = int(match.group(1))
+            data = status[key]
+            if not isinstance(data, dict):
+                continue
+            for attr, desc_key in [
+                ("apower", "pm1_apower"),
+                ("voltage", "pm1_voltage"),
+                ("current", "pm1_current"),
+                ("freq", "pm1_freq"),
+                ("aenergy", "pm1_aenergy"),
+                ("ret_aenergy", "pm1_ret_aenergy"),
+            ]:
+                if data.get(attr) is None:
+                    continue
+                desc = RPC_SENSORS.get(desc_key)
+                if desc:
+                    uid = f"{device_id}_{key}_{attr}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcSensor(
+                            coordinator, device_id, desc, idx, key, attr
+                        ))
+
     # Virtual components (READ-ONLY) — Gen2/Gen3 "virtual" number/enum/text
     # components (e.g. created by a script or a Wall Display) surface their
     # current value under ``<type>:<id>.value`` in the cloud status. We expose
