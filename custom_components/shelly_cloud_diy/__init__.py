@@ -36,6 +36,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ShellyCloudCoordinator
+from .repair_issues import async_clear_entry_issues
 from .services.fleet_map import async_handle_fleet_map
 from .services.historical import HistoricalDataService
 from .services.orphans import async_handle_detect_orphans
@@ -105,6 +106,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop repair issues belonging to a removed config entry.
+
+    Reload and restart are deliberately NOT handled here. Every issue is
+    ``is_persistent=False``, so it is gone after a restart and is re-derived
+    within one poll (or one sync cycle) if it still holds. Clearing on unload
+    would run on every options save — ``_async_options_updated`` reloads the
+    entry — and deleting an issue discards the user's "Ignore", which the
+    issue registry stores on the entry itself. That would produce exactly the
+    loop the rate-limit card instructs: ignore it, raise the poll interval,
+    save, reload, card returns un-ignored.
+    """
+    async_clear_entry_issues(hass, entry)
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

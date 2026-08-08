@@ -32,6 +32,7 @@ from .api.cloud_control import (
     ShellyCloudAuthError,
     ShellyCloudControl,
     ShellyCloudError,
+    ShellyCloudRateLimitError,
 )
 from .const import (
     CONF_CREATE_ALL_INITIALLY,
@@ -40,6 +41,14 @@ from .const import (
     DOMAIN,
     POLL_INTERVAL_DEFAULT,
     SIGNAL_NEW_DEVICE,
+)
+from .repair_issues import (
+    async_manage_missing_devices_issue,
+    async_manage_rate_limit_issue,
+    compute_missing_devices,
+    is_mass_absence,
+    missing_devices_verdict,
+    rate_limit_verdict,
 )
 
 # Gap between the v1 poll completing and the v2 name lookup firing, so we
@@ -208,6 +217,23 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # for deep-sleep battery devices. (#13)
         self._sleep_seen: dict[str, tuple[tuple, float]] = {}
 
+        # Repair bookkeeping. Streaks are counted here, never in the issue
+        # registry, so a self-healing rate limit cannot flap an issue card.
+        self._rate_limit_streak = 0
+        self._rate_limit_since: float | None = None
+        # Whether the WARNING has already been logged for the current
+        # episode, so the log fires on the transition rather than on a
+        # streak count the UI does not yet agree with.
+        self._rate_limit_reported = False
+        # Absence is tracked PER DEVICE, not per set: id -> consecutive
+        # successful polls absent, and id -> monotonic first-absent time.
+        # Set-level bookkeeping would restart every device's 24 h clock
+        # whenever any one device joined or left the missing set, so a
+        # WORSENING condition (a second device vanishing) would hide the
+        # existing card for a full day and destroy the user's "Ignore".
+        self._missing_streak: dict[str, int] = {}
+        self._missing_since: dict[str, float] = {}
+
     # ── Deep-sleep freshness bookkeeping (#13) ────────────────────────
 
     def _evaluate_sleep_state(
@@ -319,16 +345,28 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         Runs every ``update_interval`` seconds. A single HTTP request
         retrieves the state of every device the account can see.
         """
+        # Order matters: ShellyCloudRateLimitError and ShellyCloudAuthError
+        # are siblings under ShellyCloudError, so both specific branches must
+        # precede the generic one.
         try:
             data = await self._api.get_all_status()
         except ShellyCloudAuthError as err:
             # Surfaces as "repair me" in HA → user must re-enter auth_key
+            self._note_poll_not_rate_limited()
             raise ConfigEntryAuthFailed(str(err)) from err
+        except ShellyCloudRateLimitError as err:
+            # Shelly signals its 1 req/s limit as HTTP 401 with ``max_req``
+            # in the body — indistinguishable from a rejected key by status
+            # code alone. Surface it as its own repair once sustained. (#6)
+            self._note_rate_limited()
+            raise UpdateFailed(f"Shelly Cloud poll failed: {err}") from err
         except ShellyCloudError as err:
+            self._note_poll_not_rate_limited()
             raise UpdateFailed(f"Shelly Cloud poll failed: {err}") from err
 
         devices_status = data.get("devices_status") or {}
         if not isinstance(devices_status, dict):
+            self._note_poll_not_rate_limited()
             raise UpdateFailed(
                 f"Unexpected devices_status shape: {type(devices_status)}"
             )
@@ -436,7 +474,162 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             self._vcomp_config_in_flight = True
             self.hass.async_create_task(self._refresh_virtual_configs(needs_config))
 
+        # The poll succeeded, so whatever the previous outcome was, it was
+        # not a sustained rate limit.
+        self._note_poll_not_rate_limited()
+        self._evaluate_missing_devices(set(new_devices))
+
         return new_devices
+
+    # ── Repair-issue evaluation ───────────────────────────────────────
+
+    def _note_rate_limited(self) -> None:
+        """Extend the consecutive rate-limit streak and re-evaluate."""
+        now = time.monotonic()
+        if self._rate_limit_since is None:
+            self._rate_limit_since = now
+        self._rate_limit_streak += 1
+        active = rate_limit_verdict(
+            self._rate_limit_streak, self._rate_limit_since, now
+        )
+        # Log on the transition into "reportable", never on the streak count
+        # alone: at the 5 s default interval a streak of 5 is only ~30 s, so
+        # logging there would warn that the limit "has persisted" a full 90 s
+        # before the integration is willing to say so in the UI, and would
+        # re-warn every time a flapping limit re-crossed the count.
+        if active and not self._rate_limit_reported:
+            _LOGGER.warning(
+                "Shelly Cloud rate limit (HTTP 401 max_req) has persisted "
+                "for %d consecutive polls over %.0f s; the credentials are "
+                "still valid",
+                self._rate_limit_streak,
+                now - self._rate_limit_since,
+            )
+        self._rate_limit_reported = active
+        async_manage_rate_limit_issue(self.hass, self._entry, active=active)
+
+    def _note_poll_not_rate_limited(self) -> None:
+        """Reset the rate-limit streak and clear the issue if raised.
+
+        Clearing on ANY non-rate-limit outcome (success, auth failure,
+        transport failure) is deliberate: the issue asserts a *pure
+        sustained rate limit*, and a different failure type falsifies that
+        claim.
+        """
+        self._rate_limit_streak = 0
+        self._rate_limit_since = None
+        if self._rate_limit_reported:
+            _LOGGER.info("Shelly Cloud rate limit has cleared")
+            self._rate_limit_reported = False
+        async_manage_rate_limit_issue(self.hass, self._entry, active=False)
+
+    def _explicit_enabled_ids(self) -> set[str]:
+        """Return only the ids the user EXPLICITLY selected in options.
+
+        Deliberately not ``enabled_ids``: that property falls back to
+        ``set(self.devices.keys())`` in two branches (create_all_initially,
+        and the greenfield no-selection path), which would make the
+        difference against the seen set vacuous and silently disable this
+        check.
+        """
+        raw = self._options.get(CONF_ENABLED_DEVICES)
+        if isinstance(raw, list):
+            return {d for d in raw if isinstance(d, str)}
+        return set()
+
+    def _evaluate_missing_devices(self, seen: set[str]) -> None:
+        """Track enabled device ids the cloud never reports back.
+
+        Only reachable on a successful poll — the failure branches raise
+        before this runs — so the streak counts successful polls.
+        """
+        enabled = self._explicit_enabled_ids()
+        missing = compute_missing_devices(
+            enabled, seen, self.create_all_initially
+        )
+        now = time.monotonic()
+
+        # A device that reported again drops its history entirely, so a
+        # device that vanishes later serves a fresh 24 h.
+        for did in list(self._missing_since):
+            if did not in missing:
+                self._missing_since.pop(did, None)
+                self._missing_streak.pop(did, None)
+        for did in missing:
+            self._missing_streak[did] = self._missing_streak.get(did, 0) + 1
+            self._missing_since.setdefault(did, now)
+
+        # Only devices that have individually served both gates are named on
+        # the card. A newly-vanished device therefore joins an existing card
+        # 24 h later without disturbing the ids already on it.
+        reportable = {
+            did
+            for did in missing
+            if missing_devices_verdict(
+                self._missing_streak.get(did, 0),
+                self._missing_since.get(did),
+                now,
+                {did},
+                enabled,
+            )
+        }
+        # The mass-absence guard is judged on the REPORTABLE set, not on the
+        # whole missing set. Judging it on ``missing`` would let a transient
+        # fleet-wide outage RETRACT a card that individual ids had already
+        # earned over 24 h — deleting the issue, which discards the user's
+        # "Ignore", and re-creating it un-ignored once the outage passes.
+        # That is precisely the delete-then-create loop this design exists to
+        # avoid, arriving through a side door.
+        #
+        # Judging it on ``reportable`` loses nothing: a genuine account-side
+        # wipe-out makes every id vanish at the same moment, so they all
+        # clear their individual 24 h gates together and land in
+        # ``reportable`` together, where the guard still catches them.
+        active = bool(reportable) and not is_mass_absence(reportable, enabled)
+
+        # Replacing an already-raised issue with new placeholders is an
+        # in-place upsert; it preserves the user's "Ignore". Never delete
+        # and re-create here.
+        async_manage_missing_devices_issue(
+            self.hass,
+            self._entry,
+            active=active,
+            missing=reportable,
+            names=self._display_names(reportable),
+        )
+
+    def _display_names(self, ids: set[str]) -> dict[str, str]:
+        """Best-effort human labels for ``ids``, for the repair card.
+
+        ``device_names`` only ever holds CLOUD ALIASES, and the cloud omits
+        an alias for any device the user never renamed in the Shelly app —
+        exactly the device most likely to be unrecognisable as a bare hex
+        id. Fall back to whatever the HA device registry still knows, since
+        the DeviceEntry outlives the device's disappearance from the poll.
+        """
+        labels: dict[str, str] = {}
+        if not ids:
+            # Nothing to label — the common case on every healthy poll. Skip
+            # the registry lookup entirely rather than building a handle to
+            # iterate zero ids.
+            return labels
+        dev_reg = dr.async_get(self.hass)
+        for did in ids:
+            if name := self.device_names.get(did):
+                labels[did] = name
+                continue
+            device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, did)})
+            if device_entry is None:
+                continue
+            raw = device_entry.name_by_user or device_entry.name or ""
+            # Registry rows are stored as "<label> (<device_id>)"; strip the
+            # id so format_device_list does not print it twice.
+            suffix = f" ({did})"
+            if raw.endswith(suffix):
+                raw = raw[: -len(suffix)]
+            if raw:
+                labels[did] = raw
+        return labels
 
     async def _refresh_device_names(self, ids: list[str]) -> None:
         """Fetch the Shelly-App aliases for ``ids`` and cache them.

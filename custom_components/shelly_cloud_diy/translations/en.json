@@ -159,5 +159,19 @@
         "none": "Untick all devices (Submit updates the list — does not save yet)"
       }
     }
+  },
+  "issues": {
+    "rate_limited": {
+      "title": "Shelly Cloud is rate-limiting this integration",
+      "description": "Shelly Cloud allows about one request per second, and it has been rejecting this integration's requests ({entry_title}) for the last couple of minutes.\n\n**This is not a problem with your Authorization cloud key.** Shelly signals the rate limit as an HTTP 401 response whose body contains `max_req` — the same status code a rejected key would produce, but a different cause. Nothing needs to be re-entered.\n\nWhat to do:\n\n1. Check whether something else is polling Shelly Cloud with the same key at the same time — the Shelly mobile app, a second Home Assistant entry for the same account, or your own scripts.\n2. Raise the poll interval in the integration options (Settings → Devices & services → Shelly Cloud DIY → Configure). The default of 5 seconds leaves room, but the integration also makes occasional extra lookups on top of each poll.\n\nEntities become available again on the first poll that gets through, and this message disappears on its own."
+    },
+    "missing_devices": {
+      "title": "Selected devices are missing from your Shelly account",
+      "description": "You selected {count} device(s) for {entry_title} that Shelly Cloud has not reported for the last 24 hours, so no entities are created for them.\n\nDevice(s): {device_ids}\n\nThe most likely causes are that the device was removed from your Shelly account, or — for a Shelly BLU device — that the Bluetooth gateway bridging it has been offline for a long time.\n\nWhat to do:\n\n1. If this is a Shelly BLU device, check that the mains-powered Shelly that bridges it is online.\n2. Otherwise, check whether the device still appears in the Shelly app under the same account.\n3. If it is gone for good, open Settings → Devices & services → Shelly Cloud DIY → Configure, click through to the device list and save. The missing device is no longer offered there, so it drops out of your selection automatically. Then run the **Find Shelly devices no longer in your account** action (Developer tools → Actions, leave Dry run on) to see which Home Assistant devices are left over.\n\nThis message clears by itself as soon as the device reports again, or after you save your device selection again."
+    },
+    "history_import_failed": {
+      "title": "Historical energy data could not be imported",
+      "description": "The historical-data sync for {entry_title} has run twice without importing anything. Live device data is unaffected — only the import of past energy readings into long-term statistics.\n\nMost often the local gateway URL is wrong, or the gateway is not reachable from Home Assistant.\n\nWhat to do:\n\n1. Open Settings → Devices & services → Shelly Cloud DIY → Configure and check the local gateway URL, including the scheme and port (for example `http://192.168.1.50:8080`).\n2. Confirm the gateway is running and reachable from Home Assistant.\n3. If you no longer use it, clear the field to switch the import off.\n\nThe sync runs once at startup and then daily. To check a correction right away, run the **Download and convert historical energy data** action from Developer tools → Actions instead of waiting."
+    }
   }
 }
