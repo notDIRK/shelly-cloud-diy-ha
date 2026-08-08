@@ -150,5 +150,14 @@
         }
       }
     }
+  },
+  "selector": {
+    "bulk_action": {
+      "options": {
+        "manual": "Manuelle Auswahl — Submit speichert die Liste unten",
+        "all": "Alle Geräte anhaken (Submit aktualisiert die Liste — noch nicht speichern)",
+        "none": "Alle Geräte abwählen (Submit aktualisiert die Liste — noch nicht speichern)"
+      }
+    }
   }
 }

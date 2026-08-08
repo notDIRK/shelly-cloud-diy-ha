@@ -243,12 +243,11 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         UX: the user can either tick/untick individual devices in the
         list and submit, or use the bulk action radio as a shortcut.
-        Picking "Alle Geräte anhaken" or "Alle Geräte abwählen" and
-        clicking *Submit* **re-renders** the form with the list
-        live-updated (all ticked or all unticked) and the radio reset
-        to "Manuelle Auswahl". The user then verifies / fine-tunes
-        and clicks Submit a second time to actually save — only the
-        "Manuelle Auswahl" submit persists the entry.
+        Picking ``all`` or ``none`` and clicking *Submit* **re-renders**
+        the form with the list live-updated (all ticked or all unticked)
+        and the radio reset to ``manual``. The user then verifies /
+        fine-tunes and clicks Submit a second time to actually save —
+        only a ``manual`` submit persists the entry.
         """
         options = _build_device_options(
             self._pending_devices, self._pending_names
@@ -297,21 +296,13 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "bulk_action", default="manual"
                 ): SelectSelector(
                     SelectSelectorConfig(
-                        options=[
-                            SelectOptionDict(
-                                value="manual",
-                                label="Manuelle Auswahl — Submit speichert die Liste unten",
-                            ),
-                            SelectOptionDict(
-                                value="all",
-                                label="Alle Geräte anhaken (Submit aktualisiert die Liste — noch nicht speichern)",
-                            ),
-                            SelectOptionDict(
-                                value="none",
-                                label="Alle Geräte abwählen (Submit aktualisiert die Liste — noch nicht speichern)",
-                            ),
-                        ],
+                        # Labels come from the ``selector.bulk_action.options``
+                        # block in strings.json / translations. Hard-coded
+                        # ``label=`` values bypass translation entirely and
+                        # show the same text in every language (#18).
+                        options=["manual", "all", "none"],
                         mode=SelectSelectorMode.LIST,
+                        translation_key="bulk_action",
                     )
                 ),
                 vol.Optional(
@@ -515,21 +506,13 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                     "bulk_action", default="manual"
                 ): SelectSelector(
                     SelectSelectorConfig(
-                        options=[
-                            SelectOptionDict(
-                                value="manual",
-                                label="Manuelle Auswahl — Submit speichert die Liste unten",
-                            ),
-                            SelectOptionDict(
-                                value="all",
-                                label="Alle Geräte anhaken (Submit aktualisiert die Liste — noch nicht speichern)",
-                            ),
-                            SelectOptionDict(
-                                value="none",
-                                label="Alle Geräte abwählen (Submit aktualisiert die Liste — noch nicht speichern)",
-                            ),
-                        ],
+                        # Labels come from the ``selector.bulk_action.options``
+                        # block in strings.json / translations. Hard-coded
+                        # ``label=`` values bypass translation entirely and
+                        # show the same text in every language (#18).
+                        options=["manual", "all", "none"],
                         mode=SelectSelectorMode.LIST,
+                        translation_key="bulk_action",
                     )
                 ),
                 vol.Optional(
