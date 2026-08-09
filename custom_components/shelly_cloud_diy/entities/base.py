@@ -5,6 +5,7 @@ Provides shared functionality for all Shelly entities.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,14 @@ _LOGGER = logging.getLogger(__name__)
 # optimistic state, causing a visible flicker / slider snap-back. The override
 # is cleared early as soon as the cloud confirms the value. (#6)
 OPTIMISTIC_GRACE_S = 10.0
+
+# Irrigation controllers (FRANKEVER FK-06X and friends) expose each zone as a
+# virtual boolean whose ``role`` is ``zone0``…``zoneN``. Those components carry
+# no useful ``name`` of their own — the name the user typed lives in the
+# device's ``service:0`` block, indexed by the zone number. Mirrors the native
+# HA Shelly integration (``utils.py::get_irrigation_zone_id``). (#20)
+_ZONE_ROLE_RE = re.compile(r"^zone(\d+)$")
+_SERVICE_CONFIG_KEY = "service:0"
 
 
 class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
@@ -120,6 +129,65 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
             return None
         config = device_configs.get(component_key)
         return config if isinstance(config, dict) else None
+
+    def virtual_component_name(self, component_key: str) -> str | None:
+        """Return the display name for a virtual component, or None.
+
+        Two sources, checked in the order the native HA Shelly integration
+        uses:
+
+        1. **Irrigation zones** — a component whose ``role`` is ``zone<N>``
+           has no meaningful ``name`` of its own; the zone name the user typed
+           lives in ``service:0.zones[N].name``. (#20)
+        2. The component's own ``name``, set in the Shelly app. (#9)
+
+        Returns ``None`` when neither is available — before the background v2
+        config fetch completes, or when the cloud simply does not carry these
+        fields — so callers keep their generic fallback name.
+        """
+        config = self.virtual_component_config(component_key)
+        if not isinstance(config, dict):
+            return None
+
+        if zone_name := self._irrigation_zone_name(config):
+            return zone_name
+
+        name = config.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+        return None
+
+    def _irrigation_zone_name(self, config: dict[str, Any]) -> str | None:
+        """Resolve a zone name from the device's ``service:0`` block, or None.
+
+        Every step is guarded: the ``role`` field is not guaranteed to survive
+        the cloud's ``settings`` view, and a controller may report fewer zone
+        entries than it has zone components.
+        """
+        role = config.get("role")
+        if not isinstance(role, str):
+            return None
+        match = _ZONE_ROLE_RE.match(role)
+        if not match:
+            return None
+
+        service = self.virtual_component_config(_SERVICE_CONFIG_KEY)
+        if not isinstance(service, dict):
+            return None
+        zones = service.get("zones")
+        if not isinstance(zones, list):
+            return None
+
+        index = int(match.group(1))
+        if index >= len(zones):
+            return None
+        zone = zones[index]
+        if not isinstance(zone, dict):
+            return None
+        name = zone.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+        return None
 
     @property
     def is_gen2(self) -> bool:
