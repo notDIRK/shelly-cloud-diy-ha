@@ -322,6 +322,31 @@ of the way of what it can.
 
 ---
 
+## How I work
+
+I maintain this on my own, in my spare time, and I work with AI. I don't hide
+that, because the result is what matters and the result is testable: I make the
+decisions, I review every change before it ships, and I test against both ends of
+the supported Home Assistant range — on real hardware wherever the bug allows it.
+Nothing is released that I haven't checked myself. If anything in this code looks
+like something I couldn't explain, ask me and I'll answer.
+
+What it buys you is speed, and that is the part I care about most. I hate
+waiting. So alerts for new issues reach my phone, and across the issues reported
+here so far that has meant a median of **under four hours to a first answer** and
+**half a day until the issue was closed** — usually with a beta you can install
+straight away. The issue history is public, so check it rather than take my word
+for it. The slowest one took five weeks; that was at the very beginning, and it
+is the reason the alerts exist.
+
+Two caveats. This is spare time and my own money — the tools aren't free and
+nobody pays me for any of this. And I'm one person, so fast is what I aim for,
+not something I can promise.
+
+More about me: [github.com/notDIRK](https://github.com/notDIRK)
+
+---
+
 ## Help the project
 
 The most direct help costs nothing: a ⭐ on the repo, and a clear bug report or

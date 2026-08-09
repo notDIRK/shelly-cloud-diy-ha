@@ -337,6 +337,33 @@ es kann.
 
 ---
 
+## Wie ich arbeite
+
+Ich betreue das hier allein, in meiner Freizeit, und ich arbeite mit KI. Das
+verstecke ich nicht, denn es zählt das Ergebnis — und das ist überprüfbar: Die
+Entscheidungen treffe ich, jede Änderung prüfe ich vor der Veröffentlichung, und
+getestet wird gegen beide Enden der unterstützten Home-Assistant-Spanne, wo immer
+der Fehler es zulässt an echter Hardware. Nichts geht raus, was ich nicht selbst
+kontrolliert habe. Wenn etwas in diesem Code aussieht, als könnte ich es nicht
+erklären: frag mich, ich antworte.
+
+Was du davon hast, ist Tempo — und daran liegt mir am meisten. Ich hasse Warten.
+Deshalb landen Benachrichtigungen über neue Issues auf meinem Handy, und über
+alle bisher gemeldeten Issues hinweg bedeutete das im Median **unter vier Stunden
+bis zur ersten Antwort** und **einen halben Tag bis zum Schließen** — meist mit
+einer Beta, die du sofort installieren kannst. Der Issue-Verlauf ist öffentlich,
+schau also lieber dort nach, statt mir zu glauben. Der langsamste Fall dauerte
+fünf Wochen; das war ganz am Anfang, und er ist der Grund für die
+Benachrichtigungen.
+
+Zwei Einschränkungen: Das ist Freizeit und mein eigenes Geld — die Werkzeuge sind
+nicht umsonst, und bezahlt werde ich dafür von niemandem. Und ich bin eine
+Person, schnell ist also mein Anspruch, keine Zusage.
+
+Mehr über mich: [github.com/notDIRK](https://github.com/notDIRK)
+
+---
+
 ## Dem Projekt helfen
 
 Am direktesten hilfst du völlig kostenlos: ein ⭐ auf dem Repo und ein klarer
