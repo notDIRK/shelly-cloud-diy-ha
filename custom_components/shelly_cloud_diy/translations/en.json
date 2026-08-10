@@ -150,5 +150,14 @@
         }
       }
     }
+  },
+  "selector": {
+    "bulk_action": {
+      "options": {
+        "manual": "Manual selection — Submit saves the list below",
+        "all": "Tick all devices (Submit updates the list — does not save yet)",
+        "none": "Untick all devices (Submit updates the list — does not save yet)"
+      }
+    }
   }
 }
