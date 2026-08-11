@@ -188,13 +188,23 @@ grep -c "$(: 'deinen Schlüssel hier selbst einsetzen — nicht in ein Skript sc
 ```
 
 Prüfung 4 ist bewusst dir überlassen, und das ist auch der ganze Grund, warum es
-in diesem Repository **kein** „prüfe meine Installation"-Skript gibt: so ein
-Werkzeug müsste deinen Schlüssel lesen, um nach ihm suchen zu können, und seine
-Ausgabe ist genau das, was Leute in öffentliche Issues kopieren. Ein Prüfer, der
-mit dem ausgeliefert wird, was er prüft, und immer „alles gut" ausgibt, wäre
-zudem nichts wert — du würdest darauf vertrauen, dass sich das Projekt selbst ein
-Zeugnis ausstellt. Ein `grep`, den du selbst getippt hast, hat beide Probleme
-nicht.
+in diesem Repository **kein** „prüfe meine Installation"-Skript gibt.
+
+Der entscheidende Grund ist nicht, dass so ein Werkzeug unangenehm zu schreiben
+wäre. Er ist: **ein Prüfer, den das Projekt mitliefert, kann das Projekt nicht
+überprüfen.** Läge in diesem Repository ein Skript, das dieses Repository
+untersucht und „alles gut" ausgibt, würdest du mir zweimal vertrauen statt
+einmal — und eine Prüfung, die nicht schlecht ausgehen kann, ist keine Prüfung.
+Sie würde außerdem verrotten: sie testet gegen Erwartungen, die beim Schreiben
+festgelegt wurden, und meldet still weiter „alles gut", nachdem sich der Code
+darunter bewegt hat. Ein `grep`, den du selbst getippt hast, hat beide Probleme
+nicht und bleibt wahr, egal was ich ändere.
+
+Es gibt einen zweiten, kleineren Grund: um dein Log nach deinem Schlüssel zu
+durchsuchen, müsste das Werkzeug deinen Schlüssel lesen, und sein Bericht ist
+genau das, was Leute in öffentliche Issues kopieren. Der Punkt ist lösbar — ein
+Werkzeug könnte über Hashes vergleichen und nie etwas Sensibles ausgeben — und
+genau deshalb ist er der *zweite* Grund und nicht der erste.
 
 Wenn du prüfen willst, ob das von HACS Installierte diesem Repository entspricht:
 die Release-ZIPs werden von GitHub Actions aus dem getaggten Commit gebaut, du

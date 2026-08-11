@@ -180,12 +180,22 @@ grep -c "$(: 'paste your key here yourself — do not put it in a script')" home
 ```
 
 Check 4 is deliberately left for you to complete by hand, and that is the whole
-reason there is no "audit my installation" tool in this repository: such a tool
-would have to read your key in order to search for it, and its output is exactly
-the kind of thing people paste into public issues. A checker that ships with the
-thing it checks and always prints "all good" would also be worth nothing — you
-would be trusting the project to grade itself. A `grep` you typed yourself has
-neither problem.
+reason there is no "audit my installation" tool in this repository.
+
+The decisive reason is not that such a tool would be awkward to write. It is
+that **a checker shipped by the project cannot verify the project.** If this
+repository contained a script that examined this repository and printed "all
+good", you would be trusting me twice over instead of once — and a check that
+cannot come out badly is not a check. Any such tool would also rot: it would
+test against expectations hard-coded at the time of writing, and quietly keep
+reporting "all good" after the code moved underneath it. A `grep` you typed
+yourself has neither problem, and it stays true no matter what I change.
+
+There is a second, smaller reason: to search your log for your key, the tool
+would have to read your key, and its report is exactly the kind of thing people
+paste into public issues. That one is solvable — the tool could compare hashes
+and never print anything sensitive — which is precisely why it is the *second*
+reason and not the first.
 
 If you want to verify that what HACS installed matches this repository: release
 ZIPs are built by GitHub Actions from the tagged commit, so you can diff the
