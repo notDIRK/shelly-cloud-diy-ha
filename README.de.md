@@ -206,6 +206,14 @@ Formular ausfüllen und nicht auf eine Freigabe warten.
 > Passwort. Zum Rotieren: Shelly-Passwort in der App ändern — der alte Key wird
 > serverseitig invalidiert und ein neuer generiert.
 
+Du installierst Code von einem Fremden und gibst ihm einen Zugang zum gesamten
+Konto. Deshalb steht in **[Was diese Integration mit deinem Auth-Key macht](docs/AUTH_KEY.de.md)**,
+wohin der Schlüssel geht, wo er liegt, wohin er nie geht — und wie du jede
+einzelne dieser Aussagen in etwa zwei Minuten selbst nachprüfst, mit Befehlen,
+die du tippst, statt mit einem Skript von mir. Dort stehen auch die Punkte, mit
+denen ich nicht zufrieden bin; eine Seite, die nur gute Nachrichten aufzählt,
+wäre das Lesen nicht wert.
+
 ---
 
 ## Setup

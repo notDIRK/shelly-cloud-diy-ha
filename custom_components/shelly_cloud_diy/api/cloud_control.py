@@ -19,6 +19,33 @@ screen in the app).
 Shelly documents a rate limit of **1 request per second per account**; callers
 are responsible for respecting that budget. v1 and v2 share that budget. See
 ``docs/ROADMAP.md`` for the integration's overall rate-limit strategy.
+
+Credential handling — canonical statement
+-----------------------------------------
+**This module is the only place in the integration that touches the user's
+auth_key.** That is a deliberate property, not an accident: it makes the claim
+"here is everywhere your credential goes" checkable with a single ``grep``
+rather than a matter of trust. ``docs/AUTH_KEY.md`` is written for users and
+points here; if you change anything in this section, change that file too.
+
+Rules this module keeps, each one user-visible:
+
+1. **One destination.** Every request goes to ``self._base_url``, built once in
+   ``_normalise_base_url`` from the server URI the user entered at setup. There
+   is no hard-coded fallback host and no second destination for the key.
+2. **No implicit attachment.** The helpers (``_post`` / ``_post_json``) do not
+   silently add credentials for their callers. ``_post`` attaches the key
+   because every v1 endpoint requires it; ``_post_json`` attaches nothing, so
+   each v2 caller passes it explicitly and stays visible to ``grep``. Keep it
+   that way — an auto-attaching helper would make the audit trail incomplete.
+3. **Never logged.** No log record may carry the key or any structure holding
+   it. Log *that* a key was rejected, never the value; log URLs only where the
+   key is not in the query string.
+4. **Never in diagnostics.** ``diagnostics.py`` deliberately does not read
+   ``entry.data``. Diagnostics downloads get attached to public bug reports.
+
+Every site that transmits the key is marked ``# CREDENTIAL:`` below, so the
+three transmissions can be enumerated by reading, not by inference.
 """
 from __future__ import annotations
 
@@ -112,6 +139,9 @@ class ShellyCloudControl:
             request_timeout_s: Per-request timeout. Default 10 s.
         """
         self._session = session
+        # CREDENTIAL (stored, not sent): the only copy this integration keeps.
+        # It lives on the instance and is never written anywhere else — not to
+        # a log, not to disk, not into diagnostics. See the module docstring.
         self._auth_key = auth_key
         self._base_url = self._normalise_base_url(server_uri)
         self._timeout = aiohttp.ClientTimeout(total=request_timeout_s)
@@ -157,6 +187,9 @@ class ShellyCloudControl:
         back off properly.
         """
         url = f"{self._base_url}{path}"
+        # CREDENTIAL (sent 1/3): form field on every v1 endpoint. Destination is
+        # ``self._base_url`` — i.e. the server URI the user entered, nothing
+        # else. ``payload`` must never reach a log record. (docs/AUTH_KEY.md)
         payload = {"auth_key": self._auth_key}
         if extra:
             payload.update({k: str(v) for k, v in extra.items() if v is not None})
@@ -203,6 +236,11 @@ class ShellyCloudControl:
             # Shelly returned a structured error. Common causes: invalid auth_key
             # (isok=false + errors field) vs. unknown device (isok=false + data=null).
             errors = data.get("errors")
+            # NOT a credential site: this matches Shelly's error *text*, it
+            # never touches the key itself. Called out because the audit grep
+            # in docs/AUTH_KEY.md returns this line too, and a reader should
+            # not have to wonder about it. The raised message carries
+            # ``errors`` (Shelly's own wording), never the credential.
             if errors and "invalid_auth_key" in str(errors).lower():
                 raise ShellyCloudAuthError(f"Auth rejected: {errors}")
             raise ShellyCloudError(f"Shelly Cloud API error on {path}: {errors or data}")
@@ -436,6 +474,10 @@ class ShellyCloudControl:
             if offset:
                 # Space successive requests out under the 1 req/s limit.
                 await asyncio.sleep(_RATE_LIMIT_BACKOFF_S)
+            # CREDENTIAL (sent 2/3): JSON body field. The v2 API takes the key
+            # in the body, not as a Bearer header. Passed explicitly here
+            # rather than injected by ``_post_json`` so that every transmission
+            # stays greppable. (docs/AUTH_KEY.md)
             payload = {
                 "auth_key": self._auth_key,
                 "ids": chunk,
@@ -560,9 +602,27 @@ class ShellyCloudControl:
             raise ValueError("go_to_pos must be 0..100")
 
         if gen2:
-            # v2 cover endpoint: auth_key goes in the query string, and a
-            # single ``position`` field carries either the direction string
-            # or the numeric target position.
+            # v2 cover endpoint: a single ``position`` field carries either the
+            # direction string or the numeric target position.
+            #
+            # CREDENTIAL (sent 3/3) — and the one wart, documented as such in
+            # docs/AUTH_KEY.md: the key rides in the QUERY STRING here, not the
+            # body. The recipient is Shelly, who issued it, and the connection
+            # is HTTPS, so this is not disclosure to a third party — but URLs
+            # are typically logged more liberally and kept longer than bodies,
+            # on their servers.
+            #
+            # Measured 2026-08-11 against the live API: the endpoint accepts the
+            # key in the BODY too. No key -> 401 invalid_token; key in the body,
+            # bogus device id -> 400 no_permissions, i.e. authentication passed
+            # and only authorisation failed. So the query string is NOT required
+            # and this could move into the body.
+            #
+            # Not moved yet on purpose: nobody here owns cover hardware, so the
+            # full command path cannot be confirmed end to end, and changing
+            # working control code on inference alone to win a logging nuance on
+            # someone else's servers is a bad trade. Needs one confirmation from
+            # a user with a cover Shelly, then this becomes a two-line change.
             position: str | int | None = (
                 direction if direction is not None else go_to_pos
             )

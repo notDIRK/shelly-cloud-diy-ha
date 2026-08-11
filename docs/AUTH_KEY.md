@@ -1,0 +1,211 @@
+# What this integration does with your Shelly auth key
+
+*[Deutsche Fassung](AUTH_KEY.de.md)*
+
+This integration asks you for a Shelly cloud auth key. That key is powerful, and
+you are installing code from a stranger on the internet. This page tells you
+exactly where the key travels, where it is stored, where it never goes, and how
+to check every one of those claims yourself in about two minutes — without
+running anything I wrote.
+
+If you only read one paragraph: the key is used in **one file**, is sent **only
+to the server address you typed in during setup**, is never logged, never
+appears in a diagnostics download, and is never sent to me or to any third
+party. The uncomfortable parts are further down, and there are some.
+
+---
+
+## What the key is, and what it can do
+
+The auth key comes from the Shelly App under *User settings → Authorization
+cloud key*. It is a **full-account credential**: anything you can do in the
+Shelly App, the key can do — read every device on the account and control every
+device on the account. There is no read-only variant and no per-device scoping.
+That is Shelly's design, not a choice this integration makes.
+
+**Revoking it:** change your Shelly account password. The key is regenerated
+server-side, which makes the old one useless immediately. There is no separate
+"revoke key" button.
+
+Because a key cannot be scoped, the sensible mental model is: *this key is your
+Shelly password in a different shape.* Everything below follows from taking that
+seriously.
+
+---
+
+## Where the key goes
+
+Exactly one file ever touches it:
+`custom_components/shelly_cloud_diy/api/cloud_control.py`.
+
+Check for yourself:
+
+```bash
+grep -rn "_auth_key" custom_components/shelly_cloud_diy/
+```
+
+Five hits, and it is worth knowing what each one is:
+
+| What it is | Where |
+|---|---|
+| stored on the client instance | `ShellyCloudControl.__init__` |
+| **sent** — form field, v1 endpoints | `_post` |
+| **sent** — JSON body field, v2 metadata | `get_device_configs` |
+| **sent** — query parameter, v2 cover | `roller_control` |
+| not the key — a substring test on an error message | `_post` error handling |
+
+So there are **three** places that transmit it. Every transmission is written
+out explicitly at the call site; the helper methods do not silently attach
+credentials, which is what makes the `grep` above complete rather than
+indicative.
+
+All three send to `self._base_url`. That value is built once, in
+`_normalise_base_url`, from the server address **you** typed during setup
+(e.g. `shelly-42-eu.shelly.cloud`, shown in the app on the same screen as the
+key). There is no second destination for the key anywhere in the code, and no
+hard-coded fallback host.
+
+To satisfy yourself that there is no other outbound traffic at all:
+
+```bash
+grep -rnE "session\.(get|post|request)|ws_connect|https?://" custom_components/shelly_cloud_diy/
+```
+
+The only non-Shelly destination that appears is a gateway URL for CSV import
+that **you** configure yourself — see below.
+
+---
+
+## Where the key does not go
+
+**Not into the logs.** Turning on debug logging for this integration does not
+print the key. The log lines that mention `auth_key` at all are messages *about*
+a rejection ("auth_key rejected — skipping"), never the value.
+
+```bash
+grep -rn "_LOGGER" custom_components/shelly_cloud_diy/ | grep -i "auth\|key\|token"
+```
+
+**Not into diagnostics downloads.** The diagnostics module never reads the
+config entry's stored data; it only exports the device snapshot and the fleet
+map, with names, IPs, MACs and SSIDs redacted. The file is about 130 lines —
+short enough to read in full: `custom_components/shelly_cloud_diy/diagnostics.py`.
+This matters because diagnostics downloads are the thing people attach to public
+bug reports.
+
+**Not to me, and not to any third party.** There is no telemetry, no analytics,
+no crash reporting, no "phone home". The integration declares two dependencies,
+`aiohttp` and `aioshelly`, both of which ship with Home Assistant anyway
+(`manifest.json`).
+
+**Not to the CSV gateway.** The integration can fetch energy CSVs from a gateway
+URL you supply yourself. That request is a plain `GET` with **no credential
+attached**, and the URL is validated first — non-HTTP schemes and loopback
+targets are rejected, so the integration cannot be pointed back at your own Home
+Assistant (`utils/http.py`, `validate_gateway_url`).
+
+---
+
+## Where the key is stored — the part I would rather not have to write
+
+Home Assistant stores config entry data in
+`<config>/.storage/core.config_entries`, **in plain text**. Your Shelly key sits
+in that file, unencrypted, exactly like the credentials of every other
+integration you have installed.
+
+This is how Home Assistant works for all integrations; there is no supported way
+for an integration to opt out, and I am not going to pretend otherwise. The
+practical consequences are yours to weigh:
+
+- anyone who can read your Home Assistant config directory can read the key
+- the same is true of any **backup** of that directory, including automatic ones
+  and anything you upload to cloud storage
+- if you share a backup for debugging — with anyone, including me — assume the
+  key went with it, and rotate it afterwards
+
+---
+
+## One wart, stated plainly
+
+One of the three transmissions — the Gen2 cover command in `roller_control` —
+passes the key as a **query parameter** rather than in the request body.
+
+Three things keep this small, and one thing keeps it on the list:
+
+- The recipient is Shelly, who issued the key and can already do everything with
+  it. This is not disclosure to a third party.
+- The connection is HTTPS, so the query string is not visible in transit.
+- It only happens when you actually operate a cover.
+
+What remains is that URLs tend to be logged more liberally, and retained longer,
+than request bodies — on Shelly's servers, not on yours. I cannot measure that
+and will not speculate about it.
+
+**Measured on 2026-08-11:** the endpoint accepts the key in the request body
+too. Sending no key returns `401 invalid_token`; sending it in the body returns
+`400 no_permissions` for a non-existent device — meaning authentication
+succeeded and only authorization failed. So the query parameter is **not
+required by the API** and can be moved.
+
+I have not moved it yet, for one reason: I own no cover hardware, so I can prove
+that authentication works via the body but not that a real cover command
+completes that way. Changing working control code on inference alone, to gain a
+logging nuance on someone else's servers, is a bad trade. **If you own a cover
+Shelly and are willing to test it, please say so in an issue** — that is all
+this needs.
+
+---
+
+## Check it yourself, in two minutes
+
+Run these against the installed code
+(`<config>/custom_components/shelly_cloud_diy/`) or against a checkout. None of
+them run anything I wrote.
+
+```bash
+# 1. Every place the key is used — expect 5 hits, all in api/cloud_control.py
+grep -rn "_auth_key" custom_components/shelly_cloud_diy/
+
+# 2. Every outbound request in the whole integration
+grep -rnE "session\.(get|post|request)|ws_connect" custom_components/shelly_cloud_diy/
+
+# 3. Every hard-coded URL. Expect: documentation links shown in error messages,
+#    the http/https scheme handling in _normalise_base_url, and the CSV gateway
+#    example in a docstring. What you should NOT find is a hard-coded API host —
+#    the server address always comes from your own configuration.
+grep -rnE "https?://" custom_components/shelly_cloud_diy/
+
+# 4. Prove the key is not in your own logs (run in your HA config directory)
+grep -c "$(: 'paste your key here yourself — do not put it in a script')" home-assistant.log
+```
+
+Check 4 is deliberately left for you to complete by hand, and that is the whole
+reason there is no "audit my installation" tool in this repository: such a tool
+would have to read your key in order to search for it, and its output is exactly
+the kind of thing people paste into public issues. A checker that ships with the
+thing it checks and always prints "all good" would also be worth nothing — you
+would be trusting the project to grade itself. A `grep` you typed yourself has
+neither problem.
+
+If you want to verify that what HACS installed matches this repository: release
+ZIPs are built by GitHub Actions from the tagged commit, so you can diff the
+installed folder against the source for the version you are running.
+
+---
+
+## What this document does not claim
+
+- **Nothing about Shelly's side.** What their servers log, how long they keep
+  it, and who can read it is outside my knowledge and outside my control.
+- **Nothing about Home Assistant's storage security** beyond stating the
+  plain-text fact above.
+- **Nothing about future versions**, except this: this file is part of the
+  source, and changing how the key is handled without changing this file would
+  be a bug worth reporting.
+- **This is not a third-party audit.** It is a description you can check,
+  written by the person who wrote the code. The checks matter more than the
+  description; that is why they are here.
+
+Found something that contradicts any of the above? Please
+[open an issue](https://github.com/notDIRK/shelly-cloud-diy-ha/issues) — that is
+a bug in the software or in this page, and either way I want to know.
