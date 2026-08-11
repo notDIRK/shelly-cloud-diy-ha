@@ -94,9 +94,10 @@ This matters because diagnostics downloads are the thing people attach to public
 bug reports.
 
 **Not to me, and not to any third party.** There is no telemetry, no analytics,
-no crash reporting, no "phone home". The integration declares two dependencies,
-`aiohttp` and `aioshelly`, both of which ship with Home Assistant anyway
-(`manifest.json`).
+no crash reporting, no "phone home". The integration declares exactly two
+dependencies in `manifest.json`: `aiohttp`, which is part of Home Assistant's
+own core stack, and `aioshelly`, the same library Home Assistant's built-in
+Shelly integration uses. Nothing exotic, nothing of mine.
 
 **Not to the CSV gateway.** The integration can fetch energy CSVs from a gateway
 URL you supply yourself. That request is a plain `GET` with **no credential
@@ -135,6 +136,9 @@ Three things keep this small, and one thing keeps it on the list:
 - The recipient is Shelly, who issued the key and can already do everything with
   it. This is not disclosure to a third party.
 - The connection is HTTPS, so the query string is not visible in transit.
+  (`https://` is added automatically if you leave the scheme off. If you
+  deliberately typed an `http://` address at setup, this does not hold — and
+  neither does any of the rest, so do not do that.)
 - It only happens when you actually operate a cover.
 
 What remains is that URLs tend to be logged more liberally, and retained longer,
@@ -175,8 +179,13 @@ grep -rnE "session\.(get|post|request)|ws_connect" custom_components/shelly_clou
 #    the server address always comes from your own configuration.
 grep -rnE "https?://" custom_components/shelly_cloud_diy/
 
-# 4. Prove the key is not in your own logs (run in your HA config directory)
-grep -c "$(: 'paste your key here yourself — do not put it in a script')" home-assistant.log
+# 4. Prove the key is not in your own logs. Run this in your HA config
+#    directory and replace <YOUR-KEY> with the actual value. Expect: 0
+grep -cF '<YOUR-KEY>' home-assistant.log
+
+#    Your key ends up in your shell history this way. Either clear it
+#    afterwards, or avoid it entirely by typing the key at a prompt instead:
+read -rsp 'key: ' K && grep -cF "$K" home-assistant.log; unset K
 ```
 
 Check 4 is deliberately left for you to complete by hand, and that is the whole

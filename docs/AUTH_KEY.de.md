@@ -99,8 +99,9 @@ Diagnose-Dateien genau das sind, was Leute an öffentliche Fehlerberichte hänge
 
 **Nicht an mich und an keinen Dritten.** Es gibt keine Telemetrie, keine
 Analytics, kein Crash-Reporting, kein „Nach-Hause-Telefonieren". Die Integration
-deklariert zwei Abhängigkeiten, `aiohttp` und `aioshelly`, die ohnehin beide zu
-Home Assistant gehören (`manifest.json`).
+deklariert in `manifest.json` genau zwei Abhängigkeiten: `aiohttp`, Teil von
+Home Assistants eigenem Unterbau, und `aioshelly`, dieselbe Bibliothek, die auch
+die eingebaute Shelly-Integration benutzt. Nichts Exotisches, nichts von mir.
 
 **Nicht an das CSV-Gateway.** Die Integration kann Energie-CSVs von einer
 Gateway-URL holen, die du selbst angibst. Diese Anfrage ist ein schlichtes `GET`
@@ -142,6 +143,9 @@ Drei Dinge halten das klein, eines hält es auf der Liste:
 - Empfänger ist Shelly, die den Schlüssel ausgestellt haben und damit ohnehin
   alles können. Es ist keine Preisgabe an einen Dritten.
 - Die Verbindung ist HTTPS, die Query-Zeile ist unterwegs also nicht sichtbar.
+  (`https://` wird automatisch ergänzt, wenn du das Schema weglässt. Wenn du bei
+  der Einrichtung bewusst eine `http://`-Adresse eingetragen hast, gilt das
+  nicht — und der Rest auch nicht, also tu das nicht.)
 - Es passiert nur, wenn du tatsächlich eine Beschattung fährst.
 
 Was bleibt: URLs werden in Server-Infrastruktur typischerweise großzügiger
@@ -183,8 +187,14 @@ grep -rnE "session\.(get|post|request)|ws_connect" custom_components/shelly_clou
 #    verdrahteten API-Host — die Serveradresse kommt immer aus deiner Konfiguration.
 grep -rnE "https?://" custom_components/shelly_cloud_diy/
 
-# 4. Beleg, dass der Schlüssel nicht in deinen Logs steht (im HA-Konfigverzeichnis)
-grep -c "$(: 'deinen Schlüssel hier selbst einsetzen — nicht in ein Skript schreiben')" home-assistant.log
+# 4. Beleg, dass der Schlüssel nicht in deinen Logs steht. Im HA-Konfig-
+#    verzeichnis ausführen und <DEIN-KEY> durch den echten Wert ersetzen.
+#    Erwartet: 0
+grep -cF '<DEIN-KEY>' home-assistant.log
+
+#    So landet dein Schlüssel in der Shell-History. Entweder danach löschen
+#    oder das ganz vermeiden, indem du ihn an einer Eingabeaufforderung tippst:
+read -rsp 'key: ' K && grep -cF "$K" home-assistant.log; unset K
 ```
 
 Prüfung 4 ist bewusst dir überlassen, und das ist auch der ganze Grund, warum es
