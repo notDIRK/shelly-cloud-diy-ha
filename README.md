@@ -197,6 +197,13 @@ form, or wait for approval.
 > password. To rotate it, change your Shelly account password in the App — the
 > old key invalidates server-side and a new one is generated.
 
+You are installing code from a stranger and handing it an account-wide
+credential, so **[what this integration does with your auth key](docs/AUTH_KEY.md)**
+spells out where the key travels, where it is stored, where it never goes, and
+how to verify every one of those claims yourself in about two minutes — with
+commands you type, not a script I wrote. It also names the parts I am not happy
+about, because a page that only listed good news would not be worth reading.
+
 ---
 
 ## Setup
