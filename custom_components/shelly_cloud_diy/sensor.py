@@ -204,6 +204,8 @@ def _create_rpc_sensors(
                 ("apower", "switch_power"),
                 ("voltage", "switch_voltage"),
                 ("current", "switch_current"),
+                ("aenergy", "switch_energy"),
+                ("temperature", "switch_temperature"),
             ]:
                 if attr in data:
                     desc = RPC_SENSORS.get(desc_key)
