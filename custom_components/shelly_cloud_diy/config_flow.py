@@ -80,12 +80,22 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 def _build_device_options(
     devices: dict[str, dict[str, Any]],
     names: dict[str, str],
+    keep_ids: list[str] | None = None,
 ) -> list[SelectOptionDict]:
     """Build multi-select option list: labelled devices, online-first then by name.
 
     ``devices`` is the raw ``devices_status`` dict from ``/device/all_status``
     (keys are device_ids, values carry at least ``code``, ``_dev_info``, etc.).
     ``names`` maps device_id → user-set name (may be a subset of the devices).
+
+    ``keep_ids`` are device ids the user has already saved. Any of them missing
+    from ``devices`` still gets an option, listed last and labelled as
+    unavailable. Without this the form becomes unsubmittable: the saved value is
+    pre-ticked but is not among the permitted options, so Home Assistant rejects
+    the WHOLE form with "value must be one of [...]" — which also blocks adding
+    a perfectly fine new device. Note this is not the same as being offline;
+    offline devices are still listed (with a ⚠ prefix). A device has to drop out
+    of the cloud listing entirely, which happens. (#25)
     """
     options: list[tuple[bool, str, str, str]] = []
     for did, status in devices.items():
@@ -116,7 +126,29 @@ def _build_device_options(
     # Online first (True sorts before False when we invert), then by
     # lower-cased name, then by id.
     options.sort(key=lambda t: (not t[0], t[1], t[2]))
-    return [SelectOptionDict(value=did, label=label) for _, _, did, label in options]
+    result = [SelectOptionDict(value=did, label=label) for _, _, did, label in options]
+
+    # Saved devices the cloud is not listing right now, appended last so the
+    # normal fleet stays at the top. The label says why they look odd and what
+    # to do; keeping them selectable is the whole point — the user can now
+    # deliberately drop one instead of being stuck. (#25)
+    if keep_ids:
+        known = set(devices)
+        for did in keep_ids:
+            if not isinstance(did, str) or did in known:
+                continue
+            known.add(did)
+            name = names.get(did)
+            base = name if name else "Shelly"
+            result.append(
+                SelectOptionDict(
+                    value=did,
+                    label=f"⚠ {base} ({did}) — not in the current cloud listing, "
+                          f"untick to remove",
+                )
+            )
+
+    return result
 
 
 async def _fetch_devices_and_names(
@@ -453,8 +485,20 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Single form mirroring the config flow's bulk-action + list UX."""
+        current_opts = self.config_entry.options
+
+        # Read the saved selection BEFORE building the options, so devices the
+        # cloud is not listing right now survive as choices instead of making
+        # the form unsubmittable. (#25)
+        raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
+        saved_ids = (
+            [d for d in raw_enabled if isinstance(d, str)]
+            if isinstance(raw_enabled, list)
+            else []
+        )
+
         options = _build_device_options(
-            self._pending_devices, self._pending_names
+            self._pending_devices, self._pending_names, keep_ids=saved_ids
         )
         all_ids = [opt["value"] for opt in options]
 
@@ -478,13 +522,11 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             opts[CONF_ENABLED_DEVICES] = selected
             return self._save(opts)
 
-        current_opts = self.config_entry.options
         if current_opts.get(CONF_CREATE_ALL_INITIALLY):
             default_enabled = all_ids
         else:
-            raw_enabled = current_opts.get(CONF_ENABLED_DEVICES)
             if isinstance(raw_enabled, list):
-                default_enabled = [d for d in raw_enabled if isinstance(d, str)]
+                default_enabled = saved_ids
             else:
                 # Pre-v0.4.0 entry being edited for the first time — default
                 # to "all currently visible" so the user sees their fleet
