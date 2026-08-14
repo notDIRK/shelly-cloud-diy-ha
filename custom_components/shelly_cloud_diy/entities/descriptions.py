@@ -13,7 +13,6 @@ from typing import Any, Callable, Final
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
@@ -28,6 +27,28 @@ from homeassistant.const import (
 )
 
 from aioshelly.const import MODEL_NAMES
+
+# Parts-per-million unit, resolved per Home Assistant version. (#26)
+#
+# ``CONCENTRATION_PARTS_PER_MILLION`` is deprecated and scheduled for removal in
+# Core 2027.8; merely importing it on a recent HA logs a deprecation warning at
+# every start, for every user, whether or not they own a gas sensor — the table
+# below is built at import time. ``UnitOfRatio`` is the replacement, but it does
+# NOT exist on the oldest HA this integration supports (verified: ImportError on
+# 2025.1.4), so a straight swap would trade one group of users for another.
+#
+# Both resolve to the same value, ``"ppm"``, so preferring the new name and
+# falling back to the old one is behaviourally identical on every version. The
+# order matters: the fallback must only be reached when the new name is absent,
+# because the deprecation fires on import, not on use.
+try:
+    from homeassistant.const import UnitOfRatio
+
+    _PARTS_PER_MILLION: Final = UnitOfRatio.PARTS_PER_MILLION
+except ImportError:  # HA older than the rename
+    from homeassistant.const import (  # noqa: F401
+        CONCENTRATION_PARTS_PER_MILLION as _PARTS_PER_MILLION,
+    )
 
 
 def get_model_name(device_code: str) -> str:
@@ -208,7 +229,7 @@ BLOCK_SENSORS: Final[dict[tuple[str, str], BlockSensorDescription]] = {
     ("sensor", "concentration"): BlockSensorDescription(
         key="sensor|concentration",
         name="Gas Concentration",
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=_PARTS_PER_MILLION,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:molecule",
     ),
