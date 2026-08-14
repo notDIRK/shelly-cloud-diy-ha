@@ -92,6 +92,14 @@ _RATE_LIMIT_BACKOFF_S = 1.5
 # dropped so the cached config stays small. (#9)
 _VIRTUAL_COMPONENT_KEY_RE = re.compile(r"^(number|enum|text|boolean):\d+$")
 
+# Irrigation controllers (FRANKEVER FK-06X and friends) expose their zones as
+# virtual booleans, but the zone name the user typed lives in the device's
+# ``service:<n>`` block rather than in the component's own ``name`` field —
+# the same quirk the native HA Shelly integration works around. Keep that
+# block so the zone entities can resolve a real name; it rides along in the
+# ``settings`` object we already request, so it costs no extra call. (#20)
+_SERVICE_KEY_RE = re.compile(r"^service:\d+$")
+
 # Max device ids per v2 ``/devices/api/get`` request. Shelly caps the batch;
 # 10 is conservative and keeps each request light. (#9)
 _V2_CONFIG_BATCH = 10
@@ -447,9 +455,12 @@ class ShellyCloudControl:
         the config the cloud status omits: the user-set ``name``, the number
         ``meta.ui.unit``, and the enum ``options`` / ``meta.ui.titles``.
 
-        Only virtual-component keys are kept; every other settings key
-        (``switch:0``, ``script:1``, ``sys``, …) is dropped to keep the
-        cached config small. ids are batched into chunks of
+        Only virtual-component keys and the ``service:<n>`` block are kept;
+        every other settings key (``switch:0``, ``script:1``, ``sys``, …) is
+        dropped to keep the cached config small. ``service:<n>`` earns its
+        place because irrigation controllers store their per-zone names there
+        rather than on the zone components themselves. (#20)
+        ids are batched into chunks of
         ``_V2_CONFIG_BATCH`` with a pause between chunks to respect the
         shared 1 req/s budget.
 
@@ -458,8 +469,8 @@ class ShellyCloudControl:
 
         Returns:
             ``{device_id: {component_key: config_dict}}`` for every device
-            that returned at least one virtual-component config. Devices
-            with no virtual-component settings are omitted.
+            that returned at least one virtual-component or ``service``
+            config. Devices with neither are omitted.
 
         Raises:
             ShellyCloudAuthError: auth_key rejected.
@@ -499,7 +510,10 @@ class ShellyCloudControl:
                 for key, cfg in settings.items():
                     if (
                         isinstance(key, str)
-                        and _VIRTUAL_COMPONENT_KEY_RE.match(key)
+                        and (
+                            _VIRTUAL_COMPONENT_KEY_RE.match(key)
+                            or _SERVICE_KEY_RE.match(key)
+                        )
                         and isinstance(cfg, dict)
                     ):
                         comp_configs[key] = cfg

@@ -228,13 +228,12 @@ class RpcVirtualBinarySensor(ShellyBaseEntity, BinarySensorEntity):
 
     @property
     def name(self) -> str:
-        """Return the user-set component name, or the generic fallback."""
-        config = self.virtual_component_config(self._component_key)
-        if isinstance(config, dict):
-            name = config.get("name")
-            if isinstance(name, str) and name.strip():
-                return name.strip()
-        return self._generic_name
+        """Return the resolved component name, or the generic fallback.
+
+        On irrigation controllers this is the zone name from ``service:0``;
+        otherwise the name set in the Shelly app. (#20)
+        """
+        return self.virtual_component_name(self._component_key) or self._generic_name
 
     @property
     def is_on(self) -> bool | None:
