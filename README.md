@@ -117,8 +117,16 @@ the public internet.
 
 Every device gets a **Reporting** binary sensor (diagnostic category). It turns
 off when the device stops checking in with Shelly Cloud — which is what a power
-cut looks like from the cloud's side, and it keeps working when the outage takes
-your Home Assistant's own network with it, because the cloud is not in your house.
+cut looks like from the cloud's side.
+
+To be clear about what this does and does not buy you: for a device Home
+Assistant can reach on your LAN, the native integration already notices when it
+goes away, and probably sooner. The cloud view earns its keep for devices Home
+Assistant has **no local path to at all** — a shared device, a second site, a
+BLU sensor behind someone else's gateway — where there is otherwise no liveness
+signal whatsoever. It is not a way to survive your own outage: if your network
+is down, Home Assistant cannot reach the cloud either, and the sensor says so by
+going unavailable rather than guessing.
 
 It exists because the obvious signals do not work. Measured against a live
 64-device account:

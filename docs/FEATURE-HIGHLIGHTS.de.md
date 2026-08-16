@@ -28,9 +28,10 @@ BLU-Familie hinter einem Gateway). Gebaut auf einem klaren Prinzip:
 - **Volle Generationsabdeckung:** Gen1 + Gen2/Gen3 + BLE-Gateway-Geräte.
 - **Merkt, wenn ein Gerät stirbt** — ein *Reporting*-Sensor je Gerät, gebaut auf
   gemessenem Verhalten statt auf dem `cloud.connected`-Flag der Cloud (das noch
-  dreizehn Minuten nach dem Trennen eines Geräts *verbunden* meldete). Das kann
-  eine rein lokale Integration strukturell nicht leisten: der Ausfall, den sie
-  melden müsste, ist oft dasselbe Ereignis, das ihr die Sicht aufs Gerät nimmt.
+  dreizehn Minuten nach dem Trennen eines Geräts *verbunden* meldete). Für Geräte
+  im eigenen LAN deckt die native Integration das schon ab; der Punkt sind die
+  Geräte, zu denen sie **keinen lokalen Weg** hat — geteilt, entfernt oder BLU
+  hinter fremdem Gateway — wo es sonst kein einziges Lebenszeichen gibt.
 - Die einzige gepflegte HA-Integration, die Cloud-Control-API-Zugriff **mit
   State-Rücklesen, geteilten Geräten und Gen1/Gen2/BLE-Abdeckung** vereint.
 

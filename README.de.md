@@ -122,9 +122,16 @@ blockiert keine anderen Clients — und **erfordert nicht**, dass Home Assistant
 
 Jedes Gerät bekommt einen **Reporting**-Binärsensor (Kategorie Diagnose). Er fällt
 ab, sobald sich das Gerät nicht mehr bei der Shelly Cloud meldet — genau so sieht
-ein Stromausfall von der Cloud aus, und es funktioniert auch dann, wenn der
-Ausfall das Netzwerk deines Home Assistant mitreißt, denn die Cloud steht nicht
-bei dir im Haus.
+ein Stromausfall von der Cloud aus.
+
+Damit klar ist, was das bringt und was nicht: für ein Gerät, das Home Assistant
+im LAN erreicht, merkt die native Integration den Ausfall ohnehin — vermutlich
+sogar früher. Die Cloud-Sicht lohnt sich für Geräte, zu denen Home Assistant
+**gar keinen lokalen Weg** hat — ein geteiltes Gerät, ein zweiter Standort, ein
+BLU-Sensor hinter fremdem Gateway — wo es sonst überhaupt kein Lebenszeichen
+gibt. Sie ist **kein** Mittel, den eigenen Ausfall zu überstehen: liegt dein
+Netz, erreicht auch Home Assistant die Cloud nicht, und der Sensor sagt das,
+indem er nicht verfügbar wird, statt zu raten.
 
 Es gibt ihn, weil die naheliegenden Signale nicht funktionieren. Gemessen an
 einem realen Konto mit 64 Geräten:
