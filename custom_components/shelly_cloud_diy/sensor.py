@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, EntityCategory
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
-from .const import DOMAIN, device_gen, is_gen2_status
+from .const import DOMAIN, SIGNAL_DEVICE_REMOVED, device_gen, is_gen2_status
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 from .entities.descriptions import (
@@ -71,14 +71,15 @@ async def async_setup_entry(
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for newly discovered device."""
-        # Clear stale tracking for this device so entities are
-        # recreated after a delete-then-rediscover cycle.
-        stale = [k for k in created_sensors if k.startswith(device_id)]
-        for k in stale:
-            created_sensors.discard(k)
         entities = create_sensors(device_id)
         if entities:
             async_add_entities(entities)
+
+    @callback
+    def async_forget_device(device_id: str) -> None:
+        """Forget a deleted device so a later rediscovery rebuilds it."""
+        for k in [k for k in created_sensors if k.startswith(device_id)]:
+            created_sensors.discard(k)
 
     # Add existing devices
     entities: list[SensorEntity] = []
@@ -91,6 +92,9 @@ async def async_setup_entry(
     # Listen for new devices
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_NEW_DEVICE, async_add_device)
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_REMOVED, async_forget_device)
     )
 
 

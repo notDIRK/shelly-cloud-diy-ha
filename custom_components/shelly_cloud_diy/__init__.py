@@ -25,6 +25,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .api.cloud_control import ShellyCloudControl
 from .const import (
@@ -34,6 +35,7 @@ from .const import (
     CONF_SERVER_URI,
     DOMAIN,
     PLATFORMS,
+    SIGNAL_DEVICE_REMOVED,
 )
 from .coordinator import ShellyCloudCoordinator
 from .services.fleet_map import async_handle_fleet_map
@@ -232,6 +234,10 @@ async def async_remove_config_entry_device(
         return False
 
     _purge_device_entities(hass, config_entry.entry_id, device_entry.id, device_id)
+    # Tell the platforms to forget their entity bookkeeping for this device.
+    # Without it they would still consider every entity "already created" and
+    # a later rediscovery would silently produce nothing.
+    async_dispatcher_send(hass, SIGNAL_DEVICE_REMOVED, device_id)
     return True
 
 

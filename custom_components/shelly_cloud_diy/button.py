@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, SIGNAL_DEVICE_REMOVED
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 
@@ -80,12 +80,15 @@ async def async_setup_entry(
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for newly discovered device."""
-        stale = [k for k in created_entities if k.startswith(device_id)]
-        for k in stale:
-            created_entities.discard(k)
         entities = create_buttons(device_id)
         if entities:
             async_add_entities(entities)
+
+    @callback
+    def async_forget_device(device_id: str) -> None:
+        """Forget a deleted device so a later rediscovery rebuilds it."""
+        for k in [k for k in created_entities if k.startswith(device_id)]:
+            created_entities.discard(k)
 
     # Add existing devices
     entities: list[ButtonEntity] = []
@@ -98,6 +101,9 @@ async def async_setup_entry(
     # Listen for new devices
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_NEW_DEVICE, async_add_device)
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_REMOVED, async_forget_device)
     )
 
 
