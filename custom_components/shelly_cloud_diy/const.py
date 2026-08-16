@@ -68,6 +68,14 @@ HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily
 
 SIGNAL_NEW_DEVICE = f"{DOMAIN}_new_device"
 
+# Fired when the user deletes a single device from the HA UI. Platforms use
+# it to forget which entities they already built for that device, so that a
+# later rediscovery starts from scratch. Rediscovery on its own must NOT
+# reset that bookkeeping: ``/device/all_status`` omits devices spontaneously,
+# so a healthy device is "rediscovered" routinely and rebuilding its entities
+# would collide with the ones still live.
+SIGNAL_DEVICE_REMOVED = f"{DOMAIN}_device_removed"
+
 # ── Fleet-Map overlay (Stage 1) ────────────────────────────────────
 
 # Domain of Home Assistant Core's native (local/LAN) Shelly integration.

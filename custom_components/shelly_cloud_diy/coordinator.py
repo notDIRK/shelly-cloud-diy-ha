@@ -570,16 +570,9 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 "virtual_config": self.virtual_configs.get(device_id),
             }
 
-        # Fire SIGNAL_NEW_DEVICE only for devices the user has actually
-        # enabled — if they've opted out of a device we still poll it (so
-        # commands and data stay consistent) but we never materialise
-        # entities for it.
         newly_seen = set(new_devices) - self._known_device_ids
         if newly_seen:
             _LOGGER.info("Cloud Control API: discovered %d new device(s)", len(newly_seen))
-        for device_id in newly_seen:
-            if self.is_enabled(device_id):
-                async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
         self._known_device_ids = set(new_devices)
 
         # Forget check-in history for devices that have been absent from the
@@ -602,6 +595,22 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             self.checkins[gone_id].absent = True
 
         self.devices = new_devices
+
+        # Fire SIGNAL_NEW_DEVICE only for devices the user has actually
+        # enabled — if they've opted out of a device we still poll it (so
+        # commands and data stay consistent) but we never materialise
+        # entities for it.
+        #
+        # This runs AFTER ``self.devices`` has been replaced, and that order
+        # matters: the platform builders read the device's status straight out
+        # of ``coordinator.devices``. Dispatching first meant a device seen for
+        # the very first time was looked up in the PREVIOUS snapshot, where it
+        # does not exist — the builders then saw an empty status and created no
+        # component entities, and the device never got a second chance because
+        # ``_known_device_ids`` had already been updated.
+        for device_id in newly_seen:
+            if self.is_enabled(device_id):
+                async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
 
         # Schedule a name lookup for any device we haven't resolved yet.
         # Sleeping devices are included: the lookup hits the account-wide v1

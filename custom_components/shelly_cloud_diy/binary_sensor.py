@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, device_gen, is_gen2_status
+from .const import DOMAIN, SIGNAL_DEVICE_REMOVED, device_gen, is_gen2_status
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
 from .entities.descriptions import (
@@ -38,13 +38,10 @@ async def async_setup_entry(
     """Set up Shelly Cloud DIY binary sensors."""
     coordinator: ShellyCloudCoordinator = hass.data[DOMAIN][entry.entry_id]
     created_entities: set[str] = set()
-    # Kept apart from ``created_entities`` because ``async_add_device`` clears
-    # that set for a rediscovered device so component entities can be rebuilt
-    # from a fresher status. The reporting sensor derives nothing from status,
-    # so rebuilding it is never useful — and a device that flaps out of
-    # ``/device/all_status`` and back (which the endpoint does on its own) is
-    # rediscovered routinely. Without this it would be re-added on every such
-    # flap and Home Assistant would log a duplicate-unique-ID error each time.
+    # Tracked separately from ``created_entities`` because the reporting sensor
+    # derives nothing from the device status: it exists for every device, even
+    # one whose status we cannot read, so it has no per-component key to live
+    # under. Both sets are forgotten together when the device is deleted.
     reporting_created: set[str] = set()
 
     def create_binary_sensors(device_id: str) -> list[BinarySensorEntity]:
@@ -87,12 +84,16 @@ async def async_setup_entry(
     @callback
     def async_add_device(device_id: str) -> None:
         """Add entities for newly discovered device."""
-        stale = [k for k in created_entities if k.startswith(device_id)]
-        for k in stale:
-            created_entities.discard(k)
         entities = create_binary_sensors(device_id)
         if entities:
             async_add_entities(entities)
+
+    @callback
+    def async_forget_device(device_id: str) -> None:
+        """Forget a deleted device so a later rediscovery rebuilds it."""
+        for tracked in (created_entities, reporting_created):
+            for k in [k for k in tracked if k.startswith(device_id)]:
+                tracked.discard(k)
 
     # Add existing devices
     entities: list[BinarySensorEntity] = []
@@ -105,6 +106,9 @@ async def async_setup_entry(
     # Listen for new devices
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_NEW_DEVICE, async_add_device)
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_REMOVED, async_forget_device)
     )
 
 
