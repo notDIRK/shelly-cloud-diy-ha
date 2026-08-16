@@ -38,6 +38,14 @@ async def async_setup_entry(
     """Set up Shelly Cloud DIY binary sensors."""
     coordinator: ShellyCloudCoordinator = hass.data[DOMAIN][entry.entry_id]
     created_entities: set[str] = set()
+    # Kept apart from ``created_entities`` because ``async_add_device`` clears
+    # that set for a rediscovered device so component entities can be rebuilt
+    # from a fresher status. The reporting sensor derives nothing from status,
+    # so rebuilding it is never useful — and a device that flaps out of
+    # ``/device/all_status`` and back (which the endpoint does on its own) is
+    # rediscovered routinely. Without this it would be re-added on every such
+    # flap and Home Assistant would log a duplicate-unique-ID error each time.
+    reporting_created: set[str] = set()
 
     def create_binary_sensors(device_id: str) -> list[BinarySensorEntity]:
         """Create binary sensor entities for a device."""
@@ -51,7 +59,7 @@ async def async_setup_entry(
         # created before the status check below — a device whose status we
         # cannot read yet is exactly one worth watching.
         entities.extend(
-            _create_reporting_sensor(device_id, created_entities, coordinator)
+            _create_reporting_sensor(device_id, reporting_created, coordinator)
         )
 
         if not status:
