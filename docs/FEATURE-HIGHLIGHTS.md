@@ -26,6 +26,12 @@ family behind a gateway). But it is built on one firm principle:
   Shelly BLU sensors bridged through a gateway, and devices shared from another
   Shelly account.
 - **Full generation coverage:** Gen1 + Gen2/Gen3 + BLE‑gateway devices.
+- **Notices when a device dies** — a per‑device *Reporting* sensor built on
+  measured behaviour, not on the cloud's `cloud.connected` flag (which still
+  read *connected* thirteen minutes after a device was unplugged). This is
+  something a local‑only integration structurally cannot do: the outage it
+  needs to report is often the same event that takes its own view of the
+  device away.
 - The only maintained HA integration combining Cloud‑Control‑API access **with
   state read‑back, shared‑device support, and Gen1/Gen2/BLE coverage** at once.
 

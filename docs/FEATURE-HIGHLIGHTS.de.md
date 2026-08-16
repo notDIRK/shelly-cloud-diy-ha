@@ -26,6 +26,11 @@ BLU-Familie hinter einem Gateway). Gebaut auf einem klaren Prinzip:
   erreicht — inkl. Shelly-BLU-Sensoren über ein Gateway und Geräte, die aus einem
   anderen Shelly-Konto geteilt wurden.
 - **Volle Generationsabdeckung:** Gen1 + Gen2/Gen3 + BLE-Gateway-Geräte.
+- **Merkt, wenn ein Gerät stirbt** — ein *Reporting*-Sensor je Gerät, gebaut auf
+  gemessenem Verhalten statt auf dem `cloud.connected`-Flag der Cloud (das noch
+  dreizehn Minuten nach dem Trennen eines Geräts *verbunden* meldete). Das kann
+  eine rein lokale Integration strukturell nicht leisten: der Ausfall, den sie
+  melden müsste, ist oft dasselbe Ereignis, das ihr die Sicht aufs Gerät nimmt.
 - Die einzige gepflegte HA-Integration, die Cloud-Control-API-Zugriff **mit
   State-Rücklesen, geteilten Geräten und Gen1/Gen2/BLE-Abdeckung** vereint.
 

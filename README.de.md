@@ -312,6 +312,13 @@ IP, MAC) werden automatisch geschwärzt, und die Datei listet unter
 den Coordinator-Gesundheitsstand (letzter erfolgreicher Abruf und letzter
 Fehler), um die Diagnose zu beschleunigen.
 
+Geht es um den **Reporting**-Sensor — ein Gerät gilt als offline, ist aber
+nachweislich in Ordnung, oder es schlägt nie an — beantwortet derselbe Download
+das direkt: der `reporting`-Block nennt, wie lange das Gerät tatsächlich still
+ist, wie viel Stille ihm gerade zusteht, ob das der eingestellte Wert ist oder
+ein weiteres Fenster, das sich das Gerät verdient hat, und ob sein Rhythmus
+überhaupt schon gelernt wurde.
+
 Bei Fehlern hilft es, Debug-Logging für `custom_components.shelly_cloud_diy` zu
 aktivieren (Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Debug-
 Protokollierung aktivieren) und das Problem zu reproduzieren.

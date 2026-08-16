@@ -297,6 +297,13 @@ redacted automatically, and the file lists exactly what was withheld under
 `redacted_keys`. It also includes the integration's coordinator health (last
 update success and last error) to speed up diagnosis.
 
+If the question is about the **Reporting** sensor — a device flagged offline
+that is demonstrably fine, or one that never flags at all — the same download
+answers it directly: the `reporting` block states how long the device has
+actually been silent, how much silence it is currently allowed, whether that
+allowance is the configured one or a wider one the device earned, and whether
+its cadence has been learned yet.
+
 For errors, enabling debug logging for `custom_components.shelly_cloud_diy`
 (Settings → Devices & Services → Shelly Cloud DIY → Enable debug logging)
 and reproducing the problem adds a useful timeline.
