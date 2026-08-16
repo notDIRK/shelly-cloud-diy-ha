@@ -15,13 +15,20 @@ from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     statistics_during_period,
 )
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import CALLBACK_TYPE
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from ..const import CONF_LOCAL_GATEWAY_URL, HISTORICAL_SYNC_INTERVAL
+from ..repair_issues import (
+    HISTORY_IMPORT_RETRY_S,
+    async_manage_history_import_issue,
+    history_import_verdict,
+)
 from ..utils.csv_converter import parse_shelly_csv_for_import
 from ..utils.http import fetch_csv_from_gateway
 from .notifications import NotificationService
@@ -58,6 +65,15 @@ class HistoricalDataService:
         self._entry = entry
         self._notifications = NotificationService(hass)
         self._cancel_interval: callable | None = None
+        # Consecutive UNPRODUCTIVE syncs. This is instance state, so a config
+        # entry reload resets it — accepted, because the one-shot 15-minute
+        # retry below makes the counter reachable inside a single session
+        # regardless of how often the user saves their options.
+        self._sync_failures = 0
+        self._startup_task: asyncio.Task | None = None
+        self._retry_task: asyncio.Task | None = None
+        self._cancel_retry: CALLBACK_TYPE | None = None
+        self._cancel_started: CALLBACK_TYPE | None = None
 
     @property
     def gateway_url(self) -> str:
@@ -97,7 +113,10 @@ class HistoricalDataService:
         # Run initial sync once HA is fully started (event-driven,
         # no arbitrary delay).  If HA is already started when this
         # is called, the callback fires immediately.
-        async_at_started(self._hass, self._on_ha_started)
+        # Keep the unsub: if the entry unloads before HA finishes starting,
+        # the callback would otherwise still fire and start a sync on a
+        # service nobody will call cancel_auto_sync on again.
+        self._cancel_started = async_at_started(self._hass, self._on_ha_started)
 
         # Schedule recurring daily sync
         self._cancel_interval = async_track_time_interval(
@@ -117,21 +136,111 @@ class HistoricalDataService:
         Runs as a background task so it doesn't block HA startup.
         """
         _LOGGER.info("HA started, scheduling initial historical sync")
-        # Create background task so sync doesn't block startup
-        asyncio.create_task(self._run_auto_sync())
+        # Create background task so sync doesn't block startup. The handle is
+        # kept so teardown can cancel a sync still hanging on a dead gateway.
+        self._startup_task = asyncio.create_task(self._run_auto_sync())
 
     async def _run_auto_sync(self, now=None) -> None:
-        """Run automatic sync."""
+        """Run an automatic sync and keep the repair issue in step.
+
+        A "failure" here is an UNPRODUCTIVE run, not an exception: the
+        gateway fetch swallows its own network errors and returns None
+        (utils/http.py), so an unreachable gateway produces an empty result,
+        never a raise. A run with nothing IMPORTABLE is not a failure
+        either — see :meth:`_has_importable_em_devices`.
+        """
         _LOGGER.info("Starting automatic historical sync")
+        # Cancel rather than drop: if the daily interval fires while a retry
+        # is still armed, nulling the handle would leave the orphaned timer
+        # to fire later and run an extra sync outside the schedule.
+        if self._cancel_retry is not None:
+            self._cancel_retry()
+            self._cancel_retry = None
+        has_em_devices = self._has_importable_em_devices()
+        productive = False
         try:
             # sync_data imports directly using native HA API
             imported_stats = await self.sync_data(self.gateway_url)
             if imported_stats:
                 _LOGGER.info("Sync complete: %s", ", ".join(imported_stats))
+                productive = True
             else:
                 _LOGGER.warning("Sync complete: No statistics imported")
-        except Exception as err:
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001 - report, never crash the timer
             _LOGGER.error("Auto sync failed: %s", err)
+
+        # A sync started before teardown can finish after it. Bail out of the
+        # whole accounting block, not just the card: arming a 15-minute timer
+        # against an unloaded entry would run a full sync (gateway fetch plus
+        # a statistics import) on a torn-down entry a quarter of an hour later.
+        if self._entry.state is not ConfigEntryState.LOADED:
+            _LOGGER.debug("Entry no longer loaded; skipping sync accounting")
+            return
+
+        if productive or not self.gateway_url or not has_em_devices:
+            self._sync_failures = 0
+        else:
+            self._sync_failures += 1
+            if self._sync_failures == 1:
+                # Do not wait a full day for the second data point: the user
+                # most likely to hit this is the one editing their gateway
+                # URL right now, and every options save reloads the entry
+                # and resets this counter.
+                self._cancel_retry = async_call_later(
+                    self._hass, HISTORY_IMPORT_RETRY_S, self._run_retry_sync
+                )
+
+        async_manage_history_import_issue(
+            self._hass,
+            self._entry,
+            active=history_import_verdict(
+                self._sync_failures, self.gateway_url
+            ),
+        )
+
+    async def _run_retry_sync(self, _now) -> None:
+        """One-shot retry scheduled after the first unproductive sync.
+
+        The timer handle is gone by the time this runs, so the work is
+        tracked as a task instead — otherwise teardown could not reach a
+        retry already blocked on a dead gateway.
+        """
+        self._cancel_retry = None
+        self._retry_task = asyncio.current_task()
+        try:
+            await self._run_auto_sync()
+        finally:
+            self._retry_task = None
+
+    def _has_importable_em_devices(self) -> bool:
+        """True if at least one EM device could actually produce an import.
+
+        Deliberately stricter than ``_find_em_devices``, which scans the
+        whole cloud fleet — including devices the user opted out of, which
+        the coordinator still polls but never materialises as entities. The
+        import needs a resolvable energy entity AND a hostname, so an EM
+        device lacking either can never yield a statistic no matter how
+        correct the gateway URL is. Counting those as failures would raise
+        a permanent, unclearable card telling the user to fix a URL that is
+        already right.
+        """
+        for dev_id, device_data in self._find_em_devices(None):
+            if not self._coordinator.is_enabled(dev_id):
+                continue
+            if not self._get_device_hostname(device_data):
+                continue
+            device_code = device_data.get("device_code", "SHEM")
+            num_channels = (
+                3 if device_code in ("SHEM-3", "SPEM-003CEBEU") else 2
+            )
+            if any(
+                self._resolve_energy_entity_id(dev_id, channel)
+                for channel in range(num_channels)
+            ):
+                return True
+        return False
 
     async def _get_recorder_sum(self, statistic_id: str) -> float | None:
         """Get the latest cumulative sum from HA's statistics database.
@@ -291,10 +400,27 @@ class HistoricalDataService:
             return False
 
     def cancel_auto_sync(self) -> None:
-        """Cancel automatic sync."""
+        """Cancel automatic sync, the startup run and any pending retry.
+
+        A startup sync still hanging on a dead gateway would otherwise
+        resume after teardown and raise a repair card for an entry that no
+        longer has a coordinator.
+        """
         if self._cancel_interval:
             self._cancel_interval()
             self._cancel_interval = None
+        if self._cancel_started is not None:
+            self._cancel_started()
+            self._cancel_started = None
+        for attr in ("_startup_task", "_retry_task"):
+            task = getattr(self, attr)
+            if task is not None:
+                if not task.done():
+                    task.cancel()
+                setattr(self, attr, None)
+        if self._cancel_retry is not None:
+            self._cancel_retry()
+            self._cancel_retry = None
 
     async def sync_data(
         self,

@@ -161,5 +161,19 @@
         "none": "Alle Geräte abwählen (Submit aktualisiert die Liste — noch nicht speichern)"
       }
     }
+  },
+  "issues": {
+    "rate_limited": {
+      "title": "Shelly Cloud drosselt diese Integration",
+      "description": "Shelly Cloud erlaubt etwa eine Anfrage pro Sekunde und weist die Anfragen dieser Integration ({entry_title}) seit gut zwei Minuten ab.\n\n**Das ist kein Problem mit deinem Authorization cloud key.** Shelly meldet die Drosselung als HTTP 401 mit `max_req` im Body — derselbe Statuscode wie bei einem abgelehnten Key, aber eine andere Ursache. Du musst nichts neu eintragen.\n\nSo gehst du vor:\n\n1. Prüfe, ob gleichzeitig etwas anderes mit demselben Key Shelly Cloud abfragt — die Shelly-App, ein zweiter Home-Assistant-Eintrag für dasselbe Konto oder eigene Skripte.\n2. Erhöhe das Abfrageintervall in den Optionen der Integration (Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren). Der Standard von 5 Sekunden lässt Luft, zusätzlich zu jeder Abfrage kommen aber gelegentlich weitere Anfragen dazu.\n\nDie Entitäten sind wieder verfügbar, sobald eine Abfrage durchkommt; diese Meldung verschwindet dann von selbst."
+    },
+    "missing_devices": {
+      "title": "Ausgewählte Geräte fehlen in deinem Shelly-Konto",
+      "description": "Du hast für {entry_title} {count} Gerät(e) ausgewählt, die Shelly Cloud seit 24 Stunden nicht mehr meldet — dafür werden keine Entitäten angelegt.\n\nGerät(e): {device_ids}\n\nDie wahrscheinlichsten Ursachen: Das Gerät wurde aus deinem Shelly-Konto entfernt — oder bei einem Shelly-BLU-Gerät ist das Bluetooth-Gateway, das es anbindet, seit Längerem offline.\n\nSo gehst du vor:\n\n1. Handelt es sich um ein Shelly-BLU-Gerät, prüfe, ob der netzbetriebene Shelly, der es anbindet, online ist.\n2. Andernfalls prüfe, ob das Gerät in der Shelly-App unter demselben Konto noch auftaucht.\n3. Ist es endgültig weg, öffne Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren, klick dich bis zur Geräteliste durch und speichere. Das fehlende Gerät steht dort nicht mehr zur Auswahl und fällt damit automatisch aus deiner Auswahl heraus. Führe danach die Aktion **Shelly-Geräte finden, die nicht mehr in deinem Konto sind** aus (Entwicklerwerkzeuge → Aktionen, Trockenlauf anlassen), um zu sehen, welche Home-Assistant-Geräte übrig bleiben.\n\nDie Meldung verschwindet von selbst, sobald sich das Gerät wieder meldet oder du deine Geräteauswahl erneut speicherst."
+    },
+    "history_import_failed": {
+      "title": "Historische Energiedaten konnten nicht importiert werden",
+      "description": "Der Abgleich der historischen Energiedaten für {entry_title} ist zweimal gelaufen, ohne etwas zu importieren. Die Live-Daten deiner Geräte sind davon nicht betroffen — nur der Import früherer Energiewerte in die Langzeitstatistik.\n\nMeistens ist die URL des lokalen Gateways falsch oder das Gateway ist von Home Assistant aus nicht erreichbar.\n\nSo gehst du vor:\n\n1. Öffne Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren und prüfe die URL des lokalen Gateways inklusive Schema und Port (z. B. `http://192.168.1.50:8080`).\n2. Stelle sicher, dass das Gateway läuft und von Home Assistant aus erreichbar ist.\n3. Nutzt du es nicht mehr, leere das Feld — damit ist der Import aus.\n\nDer Abgleich läuft einmal beim Start und danach täglich. Willst du eine Korrektur sofort prüfen, führe die Aktion **Historische Energiedaten herunterladen und konvertieren** unter Entwicklerwerkzeuge → Aktionen aus, statt zu warten."
+    }
   }
 }

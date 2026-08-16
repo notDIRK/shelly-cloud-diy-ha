@@ -33,6 +33,8 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from custom_components.shelly_cloud_diy import binary_sensor as binary_sensor_mod
 from custom_components.shelly_cloud_diy import coordinator as coordinator_mod
 from custom_components.shelly_cloud_diy.const import (
@@ -41,6 +43,30 @@ from custom_components.shelly_cloud_diy.const import (
     SIGNAL_NEW_DEVICE,
 )
 from custom_components.shelly_cloud_diy.coordinator import ShellyCloudCoordinator
+
+
+@pytest.fixture(autouse=True)
+def _inert_repair_issues(monkeypatch):
+    """Neutralise the repair-issue wrappers for this module.
+
+    A successful poll ends by re-evaluating the repair cards, which reaches
+    into the real issue registry. These tests drive the poll against a stub
+    ``hass`` that has no registry, so the wrappers are stubbed out — the same
+    split ``test_sleeping_availability.py`` uses. Their behaviour is covered
+    in ``test_repair_issues.py`` and in the live harness.
+
+    Deliberately per-module rather than in ``conftest.py``: an autouse
+    fixture there would also disarm the tests that exist to exercise these
+    very wrappers.
+    """
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_rate_limit_issue",
+        lambda hass, entry, *, active: None,
+    )
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_missing_devices_issue",
+        lambda hass, entry, *, active, missing, names: None,
+    )
 
 DEVICE_ID = "ecda3bc59ec8"
 OTHER_ID = "d0ef76c7a454"
@@ -98,6 +124,12 @@ def _coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     coord._vcomp_config_in_flight = False
     coord._sleep_seen = {}
     coord.checkins = {}
+    # Repair bookkeeping — set here because the harness bypasses __init__.
+    coord._rate_limit_streak = 0
+    coord._rate_limit_since = None
+    coord._rate_limit_reported = False
+    coord._missing_streak = {}
+    coord._missing_since = {}
     return coord
 
 

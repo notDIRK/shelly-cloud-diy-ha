@@ -298,6 +298,28 @@ class _StubHass:
         coro.close()  # never awaited — keep asyncio from warning about it
 
 
+@pytest.fixture(autouse=True)
+def _inert_repair_issues(monkeypatch):
+    """Neutralise the repair-issue wrappers for this module.
+
+    A successful poll ends by re-evaluating the repair cards, which reaches
+    into the real issue registry. These tests drive the poll against a stub
+    ``hass`` that has no registry and are about sleep bookkeeping only, so
+    the wrappers are stubbed out — the same split ``test_repair_issues.py``
+    uses. Their behaviour is covered there and in the live harness.
+    """
+    from custom_components.shelly_cloud_diy import coordinator as coordinator_mod
+
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_rate_limit_issue",
+        lambda hass, entry, *, active: None,
+    )
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_missing_devices_issue",
+        lambda hass, entry, *, active, missing, names: None,
+    )
+
+
 def _live_coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     """A coordinator whose real ``_async_update_data`` can be driven."""
     coord = object.__new__(ShellyCloudCoordinator)
@@ -315,6 +337,12 @@ def _live_coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     coord._vcomp_config_in_flight = False
     coord._sleep_seen = {}
     coord.checkins = {}
+    # Repair bookkeeping — set here because the harness bypasses __init__.
+    coord._rate_limit_streak = 0
+    coord._rate_limit_since = None
+    coord._rate_limit_reported = False
+    coord._missing_streak = {}
+    coord._missing_since = {}
     return coord
 
 
