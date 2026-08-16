@@ -477,3 +477,53 @@ def test_a_device_with_no_readable_status_still_gets_one() -> None:
     """It is created ahead of the status check on purpose: a device we cannot
     classify is if anything more worth watching, not less."""
     assert _create_reporting_sensor(BLE_ID, set(), _EntityCoordinator({})) != []
+
+
+# ── Rediscovery: the flap the cloud produces on its own ───────────────
+
+
+class _SetupCoordinator(_EntityCoordinator):
+    """Adds the bits ``async_setup_entry`` touches on top of the entity stub."""
+
+    def is_enabled(self, device_id: str) -> bool:
+        return True
+
+
+def test_a_rediscovered_device_does_not_get_a_second_reporting_sensor(monkeypatch) -> None:
+    """``/device/all_status`` drops devices on its own, so a device is
+    rediscovered routinely. ``async_add_device`` deliberately forgets a
+    rediscovered device's component entities so they can be rebuilt from a
+    fresher status — but the reporting sensor derives nothing from status, and
+    re-adding it makes Home Assistant log a duplicate-unique-ID error.
+
+    Found by a live run against a real Home Assistant, not by the unit tests:
+    the coordinator dispatches ``SIGNAL_NEW_DEVICE`` *before* it commits the
+    new snapshot, so the rediscovery path sees an empty status and every
+    status-derived builder bows out — leaving this one to collide alone.
+    """
+    from custom_components.shelly_cloud_diy import binary_sensor as mod
+
+    record = CheckinRecord(marker=(1,), last_checkin=time.monotonic(),
+                           base_window_s=DEFAULT_WINDOW_S, widest_gap_s=60.0)
+    coordinator = _SetupCoordinator({MAINS_ID: record}, devices={MAINS_ID: {"status": {}}})
+
+    handlers: list[Any] = []
+    monkeypatch.setattr(
+        mod, "async_dispatcher_connect",
+        lambda hass, signal, cb: handlers.append(cb) or (lambda: None),
+    )
+
+    added: list[Any] = []
+    hass = SimpleNamespace(data={"shelly_cloud_diy": {"e1": coordinator}})
+    entry = SimpleNamespace(entry_id="e1", async_on_unload=lambda cb: None)
+
+    asyncio.run(mod.async_setup_entry(hass, entry, lambda ents: added.extend(ents)))
+    first = [e for e in added if e.unique_id.endswith("_reporting")]
+    assert len(first) == 1, "one reporting sensor at setup"
+
+    # The device drops out of a poll and comes back — the coordinator fires
+    # SIGNAL_NEW_DEVICE again.
+    handlers[0](MAINS_ID)
+
+    again = [e for e in added if e.unique_id.endswith("_reporting")]
+    assert len(again) == 1, "rediscovery must not add a second one"
