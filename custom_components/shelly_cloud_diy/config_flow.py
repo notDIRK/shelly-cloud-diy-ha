@@ -47,9 +47,13 @@ from .const import (
     CONF_CREATE_ALL_INITIALLY,
     CONF_ENABLED_DEVICES,
     CONF_LOCAL_GATEWAY_URL,
+    CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
     CONF_SERVER_URI,
     DOMAIN,
+    OFFLINE_AFTER_DEFAULT,
+    OFFLINE_AFTER_MAX,
+    OFFLINE_AFTER_MIN,
     POLL_INTERVAL_DEFAULT,
     POLL_INTERVAL_MAX,
     POLL_INTERVAL_MIN,
@@ -433,6 +437,9 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                         user_input.get(CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT)
                     ),
                     CONF_LOCAL_GATEWAY_URL: safe_gw,
+                    CONF_OFFLINE_AFTER: int(
+                        user_input.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT)
+                    ),
                 }
 
                 # Fetch the current fleet + names so the device-selection
@@ -463,12 +470,20 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             self.config_entry.options.get(CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT)
         )
         current_gw = self.config_entry.options.get(CONF_LOCAL_GATEWAY_URL, "")
+        current_offline = int(
+            self.config_entry.options.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT)
+        )
 
         schema = vol.Schema(
             {
                 vol.Required(
                     CONF_POLL_INTERVAL, default=current_interval
                 ): vol.All(int, vol.Range(min=POLL_INTERVAL_MIN, max=POLL_INTERVAL_MAX)),
+                vol.Required(
+                    CONF_OFFLINE_AFTER, default=current_offline
+                ): vol.All(
+                    int, vol.Range(min=OFFLINE_AFTER_MIN, max=OFFLINE_AFTER_MAX)
+                ),
                 vol.Optional(
                     CONF_LOCAL_GATEWAY_URL, default=current_gw
                 ): str,

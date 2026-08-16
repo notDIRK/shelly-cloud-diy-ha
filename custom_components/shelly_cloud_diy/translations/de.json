@@ -54,13 +54,15 @@
     "step": {
       "init": {
         "title": "Shelly Cloud DIY — Optionen",
-        "description": "Passt an, wie oft die Integration die Shelly Cloud abfragt, sowie optional die lokale Gateway-URL für den Historical-Data-Service. Die Geräteauswahl folgt im nächsten Schritt.",
+        "description": "Passt an, wie oft die Integration die Shelly Cloud abfragt, ab wann ein stilles Gerät als offline gilt, sowie optional die lokale Gateway-URL für den Historical-Data-Service. Die Geräteauswahl folgt im nächsten Schritt.",
         "data": {
           "poll_interval": "Abfrageintervall (Sekunden)",
+          "offline_after_minutes": "Gerät als offline melden nach (Minuten)",
           "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
+          "offline_after_minutes": "2–1440 min, Standard 30. Der Sensor „Reporting“ eines Geräts fällt ab, sobald das Gerät so lange nichts mehr gemeldet hat. Das ist nur ein Basiswert: ein von Natur aus stilleres Gerät bekommt automatisch ein weiteres Fenster, Batterie- und BLE-Geräte werden getrennt behandelt. Ein kleinerer Wert beschleunigt die Erkennung deshalb vor allem bei Geräten, die durchgehend melden — etwa Zwischenstecker mit Leistungsmessung.",
           "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
         }
       },

@@ -42,6 +42,24 @@ POLL_INTERVAL_MIN = 3
 POLL_INTERVAL_MAX = 60
 POLL_INTERVAL_DEFAULT = 5
 
+# ── Offline detection ("Reporting" binary sensor) ──────────────────
+#
+# How long a mains-powered device may stay silent before its "Reporting"
+# binary sensor drops to *disconnected*. This is only the BASE window: the
+# coordinator widens it per device to cover the slowest cadence it has
+# actually observed, so a naturally quiet device does not flap.
+#
+# The default is deliberately generous. Measured on a 64-device account
+# (2026-08-16): 34 of 35 mains Shellys reported within 70 s — but a Plus
+# RGBW PM sitting idle went 25 minutes between reports, with nothing wrong.
+# A 3-minute default would have produced a permanent false alarm on it.
+# Users who care about fast detection on a metering device (freezer plug,
+# …) can tighten this; the per-device widening keeps the quiet devices sane.
+CONF_OFFLINE_AFTER = "offline_after_minutes"
+OFFLINE_AFTER_DEFAULT = 30
+OFFLINE_AFTER_MIN = 2
+OFFLINE_AFTER_MAX = 24 * 60
+
 # ── Historical sync (unchanged from pre-pivot) ─────────────────────
 
 HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily
