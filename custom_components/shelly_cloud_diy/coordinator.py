@@ -297,8 +297,17 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=interval_s),
+            # Passed explicitly rather than left to the ContextVar the base
+            # class falls back on: Home Assistant reports that fallback as
+            # deprecated and removes it in 2026.8. The parameter exists in
+            # every version this integration supports (checked against the
+            # 2025.1.4 floor), so no version gate is needed.
+            config_entry=entry,
         )
 
+        # The base class now also exposes this as ``self.config_entry``.
+        # Kept under its own name because the whole module and the test
+        # harnesses address it as ``_entry``; renaming is a separate change.
         self._entry = entry
         self._api = api
         self.devices: dict[str, dict[str, Any]] = {}
