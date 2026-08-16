@@ -100,6 +100,7 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 |---|---|---|
 | ☁️ **Cloud polling** | Reads device state for every device visible to your Shelly account — owned, shared, remote, and BLE-bridged (Shelly BLU family via a BLU Gateway). | ✅ shipped |
 | 🔌 **Opt-in entities** | Switches, lights, covers, sensors, binary sensors, buttons — materialised only for the devices you choose, so you avoid duplicates with the LAN integration. | ✅ shipped |
+| 📡 **Offline detection** | A per-device **Reporting** sensor that turns off when a device stops checking in — the signal `cloud.connected` cannot give you (see below). | ✅ shipped |
 | 📈 **Energy history import** | Imports historical energy data into Home Assistant long-term statistics. | ✅ shipped |
 | ⚙️ **Config + options flow** | Paste your `auth_key`; tune the poll interval and per-device enablement later. | ✅ shipped |
 | 🌍 **Localised UI** | English and German translations for every user-visible string. | ✅ shipped |
@@ -111,6 +112,40 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 It runs **alongside** Shelly Cloud and the Shelly app — it does not take over or
 lock out other clients — and **does not require** Home Assistant to be exposed to
 the public internet.
+
+### Knowing when a device dies
+
+Every device gets a **Reporting** binary sensor (diagnostic category). It turns
+off when the device stops checking in with Shelly Cloud — which is what a power
+cut looks like from the cloud's side, and it keeps working when the outage takes
+your Home Assistant's own network with it, because the cloud is not in your house.
+
+It exists because the obvious signals do not work. Measured against a live
+64-device account:
+
+- `cloud.connected` still read **connected** thirteen minutes after a device was
+  physically unplugged, and read connected for *every* device on the account —
+  including ones silent for hours. It is a transport flag the cloud caches, not
+  a liveness signal. (The separate `Cloud` sensor still exposes it, disabled by
+  default, for anyone who wants the raw value.)
+- Devices do eventually vanish from the cloud's fleet listing, but that took up
+  to ten minutes, and the listing also omits healthy devices at random.
+
+So the verdict is based on the one thing the cloud cannot fake — the device
+having pushed a new snapshot — timed on Home Assistant's own clock.
+
+**The window is per device, and adapts.** Normal cadences differ by orders of
+magnitude: a metering plug reports every 60 s, an idle Plus RGBW PM went 29
+minutes between reports, a BLE beacon three days — all perfectly healthy. So the
+configured value (Options → *Report a device as offline after*, default 30 min)
+is a **base**: a device that is naturally quieter earns a wider window on its
+own, battery and BLE devices get their own, and until a device's cadence is
+known it gets an hour of grace. Lowering the setting therefore speeds up
+detection on devices that report continuously — a freezer's metering plug, say —
+without turning your quiet devices into false alarms.
+
+If polling itself breaks (cloud outage, rejected `auth_key`), the sensor goes
+**unavailable** rather than reporting your whole fleet as dead.
 
 ---
 

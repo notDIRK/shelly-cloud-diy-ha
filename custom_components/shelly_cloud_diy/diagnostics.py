@@ -95,6 +95,9 @@ async def async_get_device_diagnostics(
             "device_id": device_id,
             "coordinator": coordinator_health,
             "note": "device not in the current coordinator snapshot",
+            # Included here in particular: a device missing from the poll is
+            # exactly the case the reporting verdict exists to explain.
+            "reporting": _reporting_diagnostics(coordinator, device_id),
         }
 
     return {
@@ -104,7 +107,36 @@ async def async_get_device_diagnostics(
         # so anyone attaching this to a bug report knows what was withheld.
         "redacted_keys": sorted(DEVICE_TO_REDACT),
         "sleep": _sleep_diagnostics(record),
+        "reporting": _reporting_diagnostics(coordinator, device_id),
         "record": async_redact_data(record, DEVICE_TO_REDACT),
+    }
+
+
+def _reporting_diagnostics(
+    coordinator: Any, device_id: str
+) -> dict[str, Any] | None:
+    """Explain the "Reporting" verdict in numbers a reader can check.
+
+    The record holds monotonic timestamps, which say nothing in a dump. What
+    a bug report needs is: how long has this device actually been silent, how
+    much silence is it allowed, and is the allowance the configured one or a
+    wider one this device earned by being naturally quiet.
+    """
+    checkins = getattr(coordinator, "checkins", None)
+    if not isinstance(checkins, dict):
+        return None
+    checkin = checkins.get(device_id)
+    if checkin is None:
+        return None
+
+    return {
+        "silent_for_s": round(time.monotonic() - checkin.last_checkin, 1),
+        "stale_after_s": round(checkin.stale_after_s, 1),
+        "base_window_s": round(checkin.base_window_s, 1),
+        "widest_observed_gap_s": round(checkin.widest_gap_s, 1),
+        "cadence_learned": checkin.widest_gap_s > 0,
+        "missing_from_last_poll": checkin.absent,
+        "reporting": checkin.is_reporting(time.monotonic()),
     }
 
 

@@ -54,13 +54,15 @@
     "step": {
       "init": {
         "title": "Shelly Cloud DIY options",
-        "description": "Adjust how often the integration polls Shelly Cloud for state and, optionally, the local gateway URL used by the historical-data service. Device selection follows on the next step.",
+        "description": "Adjust how often the integration polls Shelly Cloud for state, when a silent device counts as offline and, optionally, the local gateway URL used by the historical-data service. Device selection follows on the next step.",
         "data": {
           "poll_interval": "Poll interval (seconds)",
+          "offline_after_minutes": "Report a device as offline after (minutes)",
           "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
+          "offline_after_minutes": "2–1440 min, default 30. Each device's \"Reporting\" sensor turns off once the device has been silent this long. It is only a base value: a device that is naturally quieter earns a wider window on its own, and battery or BLE devices are handled separately. Lowering it therefore mainly speeds up detection on devices that report continuously, such as power-metering plugs.",
           "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
         }
       },

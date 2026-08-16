@@ -15,6 +15,7 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -36,10 +37,13 @@ from .api.cloud_control import (
 from .const import (
     CONF_CREATE_ALL_INITIALLY,
     CONF_ENABLED_DEVICES,
+    CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
     DOMAIN,
+    OFFLINE_AFTER_DEFAULT,
     POLL_INTERVAL_DEFAULT,
     SIGNAL_NEW_DEVICE,
+    device_gen,
 )
 
 # Gap between the v1 poll completing and the v2 name lookup firing, so we
@@ -79,6 +83,53 @@ SLEEP_STALE_FLOOR_S = 4 * 3600
 # Hard ceiling on the staleness window, so a device configured with an absurd
 # wakeup period cannot stay "available" indefinitely after it dies.
 SLEEP_STALE_CAP_S = 24 * 3600
+
+# ── Offline detection: "is this device still reporting?" ──────────────
+#
+# Measured against a live 64-device account on 2026-08-16, because every
+# cheaper signal turned out to be a lie:
+#
+#   * ``cloud.connected`` stayed ``true`` 13 minutes after a device was
+#     physically unplugged, and read ``true`` for all 35 mains devices —
+#     including ones that had not reported in a quarter of an hour.
+#   * ``_dev_info.online`` read ``true`` for all 29 BLE/BLU devices,
+#     including one that had been silent for three days.
+#   * Disappearing from ``/device/all_status`` does happen, but takes up to
+#     ~10 minutes and the endpoint also omits devices spontaneously.
+#
+# What is trustworthy is that the device pushed *something* — which is what
+# ``checkin_marker`` fingerprints. So "reporting" means "we have seen a new
+# fingerprint recently enough", measured on our own monotonic clock.
+
+# Multiplier applied to the widest check-in gap actually observed for a
+# device, to derive its personal staleness window. A device that normally
+# reports every 25 minutes must not be called dead at 30.
+REPORT_GAP_MARGIN = 2.0
+
+# Floor applied until a device's cadence is actually known. Learned gaps live
+# in memory only, so every HA restart starts from zero knowledge — and a user
+# who tightened the window for their metering plug would otherwise get a false
+# alarm on their quiet devices after every restart. Measured worst case for a
+# healthy mains device was a 29-minute gap (an idle Plus RGBW PM), so an hour
+# of grace covers it with margin. Once one real gap has been observed the
+# configured window takes over, which for a device reporting every minute is
+# roughly two minutes after startup.
+REPORT_UNLEARNED_FLOOR_S = 60 * 60
+
+# Ceiling on what a single observed gap may teach us. A device that really
+# was offline for hours would otherwise "learn" that outage as its normal
+# cadence and could never report an outage again.
+REPORT_LEARN_CAP_S = 2 * 3600
+
+# Base window for BLE/BLU devices bridged through a gateway. They are
+# battery beacons: measured median silence 19 minutes, maximum 3 days, with
+# nothing wrong. They cannot run a heartbeat (no scripting, no mains), so
+# the only safe base is a generous one.
+REPORT_STALE_BLE_S = 24 * 3600
+
+# Hard ceiling on any device's staleness window, so neither the learned gap
+# nor a misconfigured option can push detection out indefinitely.
+REPORT_STALE_CAP_S = 7 * 24 * 3600
 
 # Delay before the post-command status refresh (seconds). Long enough for the
 # Shelly Cloud to propagate the new state (so the poll confirms rather than
@@ -120,6 +171,24 @@ def sleep_period_s(status: dict[str, Any]) -> int:
     return SLEEP_ASSUMED_PERIOD_S if status.get("_sleeping") is True else 0
 
 
+def sleep_window_s(status: dict[str, Any]) -> float:
+    """Return how long a deep-sleep device may stay silent, 0 if it is not one.
+
+    Split out of :meth:`ShellyCloudCoordinator._evaluate_sleep_state` so that
+    offline detection can reuse the *length* of the window. Reusing the
+    deadline instead would be wrong twice over: it shrinks as the device stays
+    silent, and offline detection measures from its own last-check-in stamp,
+    so the two would compound into roughly half the intended tolerance.
+    """
+    period = sleep_period_s(status)
+    if not period:
+        return 0.0
+    return min(
+        max(period * SLEEP_STALE_MULTIPLIER, SLEEP_STALE_FLOOR_S),
+        SLEEP_STALE_CAP_S,
+    )
+
+
 def checkin_marker(status: dict[str, Any]) -> tuple[Any, ...]:
     """Return the fields that change whenever the device pushes a new snapshot.
 
@@ -139,6 +208,46 @@ def checkin_marker(status: dict[str, Any]) -> tuple[Any, ...]:
         sys_block.get("uptime"),
         status.get("ts"),
     )
+
+
+@dataclass
+class CheckinRecord:
+    """What we know about one device's reporting behaviour.
+
+    Timestamps are ``time.monotonic`` values stamped by us, never clocks read
+    out of the payload: ``_updated`` carries no timezone, ``ts`` can lag the
+    rest of the payload by hours, and device clocks drift. The payload fields
+    are only ever compared for *change* (see :func:`checkin_marker`).
+    """
+
+    marker: tuple[Any, ...]
+    last_checkin: float
+    base_window_s: float
+    # Widest gap between two consecutive check-ins we have actually seen for
+    # this device. Starts at 0 and only ever grows, so the window adapts
+    # towards fewer false alarms and never towards more.
+    widest_gap_s: float = 0.0
+    # True while the device is missing from the poll, and set as soon as it
+    # goes missing so the gap that spans the absence is not mistaken for the
+    # device's normal cadence.
+    absent: bool = False
+
+    @property
+    def stale_after_s(self) -> float:
+        """Seconds of silence after which this device counts as not reporting.
+
+        Until we have seen this device report twice we do not know its cadence,
+        so the floor applies and the device is given the benefit of the doubt.
+        """
+        if self.widest_gap_s <= 0.0:
+            window = max(self.base_window_s, REPORT_UNLEARNED_FLOOR_S)
+        else:
+            window = max(self.base_window_s, self.widest_gap_s * REPORT_GAP_MARGIN)
+        return min(window, REPORT_STALE_CAP_S)
+
+    def is_reporting(self, now: float) -> bool:
+        """Whether the last check-in is still inside the staleness window."""
+        return (now - self.last_checkin) < self.stale_after_s
 
 
 class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -207,6 +316,93 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # where that fingerprint first appeared). Drives the staleness window
         # for deep-sleep battery devices. (#13)
         self._sleep_seen: dict[str, tuple[tuple, float]] = {}
+        # device_id → CheckinRecord, for EVERY device rather than only the
+        # sleeping ones. Kept separate from ``_sleep_seen`` on purpose: that
+        # one drops mains devices by design (#13), while offline detection
+        # needs exactly those. Entries survive a device's absence from the
+        # poll — that absence is the very thing the "Reporting" sensor has to
+        # be able to report — and are bounded by the size of the account.
+        self.checkins: dict[str, CheckinRecord] = {}
+
+    # ── Offline detection bookkeeping ─────────────────────────────────
+
+    def _base_window_s(self, status: dict[str, Any]) -> float:
+        """Return the base staleness window for one device.
+
+        Three classes, because their normal silence differs by orders of
+        magnitude (all three measured on a live account, see the constants
+        above):
+
+        * **deep-sleep battery devices** — reuse the window (#13) already
+          derived from ``wakeup_period``, so both features agree on what
+          "still checking in" means for them.
+        * **BLE/BLU beacons** — silent for hours to days by design.
+        * **mains devices** — the user-configurable window.
+        """
+        if sleep := sleep_window_s(status):
+            return sleep
+        if device_gen(status) == "GBLE":
+            return REPORT_STALE_BLE_S
+        return self.offline_after_s
+
+    def _record_checkin(
+        self,
+        device_id: str,
+        status: dict[str, Any],
+        now: float,
+    ) -> None:
+        """Update the check-in record for a device present in this poll."""
+        marker = checkin_marker(status)
+        base = self._base_window_s(status)
+        record = self.checkins.get(device_id)
+
+        if record is None:
+            # First sight counts as a check-in: we have no evidence the device
+            # is gone, and the alternative would flag every device as offline
+            # for one window after each HA restart.
+            self.checkins[device_id] = CheckinRecord(
+                marker=marker, last_checkin=now, base_window_s=base
+            )
+            return
+
+        record.base_window_s = base
+        if record.marker == marker:
+            # Present but silent — the window keeps running.
+            record.absent = False
+            return
+
+        gap = now - record.last_checkin
+        # Only learn a cadence from a gap the device spent *present and
+        # silent*. A gap that spans an absence is not evidence of a slow
+        # device, and learning from it would let one real outage widen the
+        # window until the next outage could never be detected.
+        if not record.absent and gap <= REPORT_LEARN_CAP_S:
+            record.widest_gap_s = max(record.widest_gap_s, gap)
+        record.marker = marker
+        record.last_checkin = now
+        record.absent = False
+
+    def is_reporting(self, device_id: str) -> bool | None:
+        """Whether ``device_id`` has checked in recently enough.
+
+        ``None`` when we have never seen the device, so a freshly created
+        entity reports *unknown* rather than asserting an outage it has no
+        evidence for.
+        """
+        record = self.checkins.get(device_id)
+        if record is None:
+            return None
+        return record.is_reporting(time.monotonic())
+
+    @property
+    def offline_after_s(self) -> float:
+        """Configured base window for mains devices, in seconds."""
+        minutes = self._options.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT)
+        try:
+            minutes = float(minutes)
+        except (TypeError, ValueError):
+            minutes = OFFLINE_AFTER_DEFAULT
+        return max(minutes, 1.0) * 60.0
 
     # ── Deep-sleep freshness bookkeeping (#13) ────────────────────────
 
@@ -251,11 +447,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         else:
             last_seen = previous[1]
 
-        window = min(
-            max(period * SLEEP_STALE_MULTIPLIER, SLEEP_STALE_FLOOR_S),
-            SLEEP_STALE_CAP_S,
-        )
-        return True, last_seen + window
+        return True, last_seen + sleep_window_s(status)
 
     # ── Properties platform code may inspect ──────────────────────────
 
@@ -361,6 +553,9 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 device_id, status, now
             )
 
+            # Offline detection runs for every device, sleeping or not.
+            self._record_checkin(device_id, status, now)
+
             new_devices[device_id] = {
                 "status": status,
                 "online": online,
@@ -397,6 +592,14 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         for gone in set(self._sleep_seen) - set(new_devices):
             if now - self._sleep_seen[gone][1] > SLEEP_STALE_CAP_S:
                 self._sleep_seen.pop(gone, None)
+
+        # Mark devices missing from this poll. Absence alone is deliberately
+        # NOT an outage: ``/device/all_status`` omits devices spontaneously
+        # (see the pruning note above), so the record keeps ageing against its
+        # own window and only trips once the device has actually been silent
+        # for longer than it ever normally is. That is the debounce.
+        for gone_id in set(self.checkins) - set(new_devices):
+            self.checkins[gone_id].absent = True
 
         self.devices = new_devices
 

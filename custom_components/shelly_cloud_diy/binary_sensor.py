@@ -5,8 +5,12 @@ import logging
 import re
 from typing import Any
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -42,6 +46,13 @@ async def async_setup_entry(
             return entities
         device_data = coordinator.devices.get(device_id, {})
         status = device_data.get("status", {})
+
+        # Offline detection is device-wide, not component-derived, so it is
+        # created before the status check below — a device whose status we
+        # cannot read yet is exactly one worth watching.
+        entities.extend(
+            _create_reporting_sensor(device_id, created_entities, coordinator)
+        )
 
         if not status:
             return entities
@@ -87,6 +98,95 @@ async def async_setup_entry(
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_NEW_DEVICE, async_add_device)
     )
+
+
+def _create_reporting_sensor(
+    device_id: str,
+    created: set[str],
+    coordinator: ShellyCloudCoordinator,
+) -> list[BinarySensorEntity]:
+    """Create the device-wide "Reporting" sensor, once per device.
+
+    Unlike the other builders this one derives nothing from the status: every
+    device gets exactly one, including devices whose status is empty or whose
+    generation we cannot classify. Those are if anything the ones most worth
+    watching.
+    """
+    uid = f"{device_id}_reporting"
+    if uid in created:
+        return []
+    created.add(uid)
+    return [ShellyReportingBinarySensor(coordinator, device_id)]
+
+
+class ShellyReportingBinarySensor(ShellyBaseEntity, BinarySensorEntity):
+    """Whether the device is still reporting to Shelly Cloud.
+
+    This is the honest counterpart to the ``Cloud`` binary sensor above.
+    That one mirrors ``cloud.connected``, which the cloud caches: measured on
+    a live account, it read *connected* for a device that had been physically
+    unplugged 13 minutes earlier, and for every device on the account
+    including BLE beacons silent for three days. It is a transport flag the
+    cloud never revises, not a liveness signal.
+
+    This sensor instead keys off the only thing the cloud cannot fake: that
+    the device pushed a new snapshot. The coordinator fingerprints each
+    payload and stamps its own monotonic clock when the fingerprint changes,
+    then compares that against a per-device staleness window.
+
+    ``on`` (connected) therefore means "checked in recently enough", and
+    ``off`` means "silent for longer than this device ever normally is" —
+    which is what a power cut looks like from the cloud's side.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Reporting"
+
+    def __init__(
+        self, coordinator: ShellyCloudCoordinator, device_id: str
+    ) -> None:
+        """Initialize the reporting sensor."""
+        super().__init__(coordinator, device_id, 0)
+        self._attr_unique_id = f"{device_id}_reporting"
+
+    @property
+    def available(self) -> bool:
+        """Return if the verdict itself can be trusted.
+
+        Deliberately *not* the base class's availability, which keys off the
+        device being present and online — this entity exists to report
+        precisely the case where it is not, and an unavailable entity says
+        nothing.
+
+        It does go unavailable when our own polling breaks: during a cloud
+        outage or an auth failure we have no evidence about any device, and
+        silently reporting the whole fleet as dead would be worse than
+        admitting we cannot tell.
+        """
+        return (
+            self.coordinator.last_update_success
+            and self._device_id in self.coordinator.checkins
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True while the device is still checking in."""
+        return self.coordinator.is_reporting(self._device_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the window this verdict was made against.
+
+        Worth surfacing because it is per-device and adapts: a quiet device
+        earns a wider window than the configured default, and without this
+        the user would have no way to see why one device tolerates far more
+        silence than another.
+        """
+        record = self.coordinator.checkins.get(self._device_id)
+        if record is None:
+            return None
+        return {"stale_after_s": int(record.stale_after_s)}
 
 
 def _create_block_sensors(

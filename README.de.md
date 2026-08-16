@@ -105,6 +105,7 @@ Lücke schließt dieses Projekt.
 |---|---|---|
 | ☁️ **Cloud-Polling** | Liest den Status jedes Geräts, das dein Shelly-Account sieht — eigene, geteilte, entfernte und BLE-überbrückte (Shelly-BLU-Familie über ein BLU-Gateway). | ✅ ausgeliefert |
 | 🔌 **Opt-in-Entities** | Schalter, Lampen, Rollladen, Sensoren, Binary Sensors, Buttons — nur für die Geräte angelegt, die du auswählst, damit es keine Doppler mit der LAN-Integration gibt. | ✅ ausgeliefert |
+| 📡 **Ausfall-Erkennung** | Ein **Reporting**-Sensor je Gerät, der abfällt, sobald sich ein Gerät nicht mehr meldet — das Signal, das `cloud.connected` nicht liefern kann (siehe unten). | ✅ ausgeliefert |
 | 📈 **Energie-Verlaufsimport** | Importiert historische Energiedaten in die Home-Assistant-Langzeitstatistik. | ✅ ausgeliefert |
 | ⚙️ **Config- + Options-Flow** | `auth_key` einfügen; Poll-Intervall und Geräte-Auswahl später anpassen. | ✅ ausgeliefert |
 | 🌍 **Lokalisierte UI** | Englische und deutsche Übersetzungen für jeden sichtbaren Text. | ✅ ausgeliefert |
@@ -116,6 +117,43 @@ Lücke schließt dieses Projekt.
 Sie läuft **parallel** zur Shelly Cloud und zur Shelly-App — sie übernimmt oder
 blockiert keine anderen Clients — und **erfordert nicht**, dass Home Assistant im
 öffentlichen Internet exponiert ist.
+
+### Mitbekommen, wenn ein Gerät stirbt
+
+Jedes Gerät bekommt einen **Reporting**-Binärsensor (Kategorie Diagnose). Er fällt
+ab, sobald sich das Gerät nicht mehr bei der Shelly Cloud meldet — genau so sieht
+ein Stromausfall von der Cloud aus, und es funktioniert auch dann, wenn der
+Ausfall das Netzwerk deines Home Assistant mitreißt, denn die Cloud steht nicht
+bei dir im Haus.
+
+Es gibt ihn, weil die naheliegenden Signale nicht funktionieren. Gemessen an
+einem realen Konto mit 64 Geräten:
+
+- `cloud.connected` stand **13 Minuten** nach dem physischen Trennen eines Geräts
+  noch auf *verbunden* — und zwar für *jedes* Gerät des Kontos, auch für seit
+  Stunden stumme. Es ist ein Transport-Flag, das die Cloud zwischenspeichert,
+  kein Lebenszeichen. (Der separate `Cloud`-Sensor zeigt den Rohwert weiterhin,
+  standardmäßig deaktiviert.)
+- Geräte verschwinden zwar irgendwann aus der Geräteliste der Cloud, das dauerte
+  aber bis zu zehn Minuten — und die Liste lässt auch gesunde Geräte zufällig aus.
+
+Die Bewertung stützt sich deshalb auf das Einzige, was die Cloud nicht erfinden
+kann: dass das Gerät einen neuen Datensatz geschickt hat — gemessen an der Uhr
+von Home Assistant.
+
+**Das Fenster gilt je Gerät und passt sich an.** Die normalen Meldeabstände
+unterscheiden sich um Größenordnungen: ein Zwischenstecker mit Leistungsmessung
+meldet jede Minute, ein unbenutzter Plus RGBW PM lag bei 29 Minuten, ein
+BLE-Sensor bei drei Tagen — alle völlig gesund. Der eingestellte Wert
+(Optionen → *Gerät als offline melden nach*, Standard 30 min) ist deshalb ein
+**Basiswert**: ein von Natur aus stilleres Gerät bekommt automatisch ein weiteres
+Fenster, Batterie- und BLE-Geräte ein eigenes, und solange der Rhythmus eines
+Geräts unbekannt ist, gilt eine Stunde Karenz. Ein kleinerer Wert beschleunigt
+die Erkennung also bei Geräten, die durchgehend melden — etwa dem Zwischenstecker
+an der Gefriertruhe — ohne die stillen Geräte zu Fehlalarmen zu machen.
+
+Bricht das Abfragen selbst weg (Cloud-Ausfall, abgelehnter `auth_key`), wird der
+Sensor **nicht verfügbar**, statt die ganze Flotte für tot zu erklären.
 
 ---
 

@@ -314,6 +314,7 @@ def _live_coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     coord.virtual_configs = {}
     coord._vcomp_config_in_flight = False
     coord._sleep_seen = {}
+    coord.checkins = {}
     return coord
 
 
