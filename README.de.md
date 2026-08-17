@@ -106,6 +106,7 @@ Lücke schließt dieses Projekt.
 | ☁️ **Cloud-Polling** | Liest den Status jedes Geräts, das dein Shelly-Account sieht — eigene, geteilte, entfernte und BLE-überbrückte (Shelly-BLU-Familie über ein BLU-Gateway). | ✅ ausgeliefert |
 | 🔌 **Opt-in-Entities** | Schalter, Lampen, Rollladen, Sensoren, Binary Sensors, Buttons — nur für die Geräte angelegt, die du auswählst, damit es keine Doppler mit der LAN-Integration gibt. | ✅ ausgeliefert |
 | 📡 **Ausfall-Erkennung** | Ein **Reporting**-Sensor je Gerät, der abfällt, sobald sich ein Gerät nicht mehr meldet — das Signal, das `cloud.connected` nicht liefern kann (siehe unten). | ✅ ausgeliefert |
+| ⚡ **Warnung bei klebendem Kontakt** | Meldet, wenn ein Relais sich als offen meldet, während die geräteeigene Messung weiter eine Last sieht — ein verschweißter Kontakt (siehe unten). | ✅ ausgeliefert |
 | 📈 **Energie-Verlaufsimport** | Importiert historische Energiedaten in die Home-Assistant-Langzeitstatistik. | ✅ ausgeliefert |
 | ⚙️ **Config- + Options-Flow** | `auth_key` einfügen; Poll-Intervall und Geräte-Auswahl später anpassen. | ✅ ausgeliefert |
 | 🌍 **Lokalisierte UI** | Englische und deutsche Übersetzungen für jeden sichtbaren Text. | ✅ ausgeliefert |
@@ -161,6 +162,50 @@ an der Gefriertruhe — ohne die stillen Geräte zu Fehlalarmen zu machen.
 
 Bricht das Abfragen selbst weg (Cloud-Ausfall, abgelehnter `auth_key`), wird der
 Sensor **nicht verfügbar**, statt die ganze Flotte für tot zu erklären.
+
+### Mitbekommen, wenn ein Relais nicht mehr abschaltet
+
+Ein schaltender Shelly meldet im selben Payload, was er *befohlen* hat und was
+er *misst*. Sagt das Relais „offen", während die Messung weiter eine Last sieht,
+ist der Kontakt verschweißt — der Aktor nimmt weiter Befehle an und meldet
+weiter *aus*, die Last schaltet aber nie wirklich ab. Alles, was auf dem
+Abschalten beruht (eine Automation, ein Zeitplan, ein Bewegungsmelder), hört
+damit unbemerkt auf zu funktionieren, und Home Assistant sagt kein Wort.
+
+Jeder Schaltkanal, der seinen eigenen Ausgang misst, bekommt deshalb einen
+Binärsensor **Relay fault** (Diagnose, Klasse `problem`), und beim Auslösen
+erscheint eine Reparatur-Meldung. Die gemessene Leistung steht als Attribut
+daneben — diese Zahl ist das ganze Argument.
+
+Gebaut wurde das an einem Gerät, das genau so ausgefallen ist: ein Shelly 1PM
+Mini Gen3 meldete gleichzeitig `output: false` und 85,2 W, so lange wie
+beobachtet wurde, bei sichtbar brennender Lampe, per Software nicht mehr
+abschaltbar. Zwei Dinge hat dieser Lauf gelehrt, beide stecken im Detektor:
+
+- **Der Moment direkt nach einem Schaltbefehl lügt.** Ein Ausschalten lieferte
+  rund 45 Sekunden lang 0 W, obwohl die Last nachweislich weiterlief. Der
+  Widerspruch muss deshalb anhalten — fünf Meldungen *und* zwei Minuten —, bevor
+  überhaupt etwas gesagt wird, und ein einzelner unauffälliger Messwert nimmt
+  eine stehende Warnung **nicht** zurück. Zum Löschen braucht es fünf ruhige
+  Minuten.
+- **Der Energiezähler ist zu grob, um zu helfen.** Er stand 80 Sekunden still
+  und sprang dann auf einmal um 1,0 Wh. Er geht nicht in das Urteil ein.
+
+Gezählt werden die Meldungen des Geräts, nicht unsere Abfragen: ein
+eingefrorenes Gerät liefert seinen letzten Payload immer wieder aus, und würden
+Abfragen zählen, ließe sich aus einem einzigen alten Schnappschuss ein Vorwurf
+zusammenzählen. Eine bereits ausgesprochene Warnung bleibt dagegen bestehen,
+wenn ein Gerät verstummt — ein verschweißter Kontakt löst sich nicht dadurch,
+dass das Gerät aus der Cloud fällt.
+
+Bewusst zurückhaltend: unter 5 W wird nichts gemeldet (Snubber, LED-Treiber und
+Messrauschen legen immer etwas auf einen offenen Kontakt), Geräte mit
+Klemmwandler werden nie beurteilt, weil ihre Messung in keinem definierten
+Verhältnis zu irgendeinem Kontakt daneben steht, und Gen1-Rollladengeräte
+bleiben ganz außen vor — dort ist „Relais aus, Strom fließt" einfach ein
+fahrender Rollladen. Sitzt ein Shelly in einer Wechselschaltung, wo der andere
+Schalter Strom durch die Messung schicken kann, obwohl das Relais wirklich offen
+ist, lässt sich der Detektor in den Optionen abschalten.
 
 ---
 

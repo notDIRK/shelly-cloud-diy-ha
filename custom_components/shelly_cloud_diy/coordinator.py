@@ -40,15 +40,23 @@ from .const import (
     CONF_ENABLED_DEVICES,
     CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
+    CONF_RELAY_FAULT_DETECTION,
     DOMAIN,
     OFFLINE_AFTER_DEFAULT,
     POLL_INTERVAL_DEFAULT,
+    RELAY_FAULT_DETECTION_DEFAULT,
     SIGNAL_NEW_DEVICE,
     device_gen,
+)
+from .relay_fault import (
+    iter_relay_readings,
+    relay_clear_verdict,
+    relay_fault_verdict,
 )
 from .repair_issues import (
     async_manage_missing_devices_issue,
     async_manage_rate_limit_issue,
+    async_manage_relay_fault_issue,
     compute_missing_devices,
     is_mass_absence,
     missing_devices_verdict,
@@ -395,6 +403,19 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # existing card for a full day and destroy the user's "Ignore".
         self._missing_streak: dict[str, int] = {}
         self._missing_since: dict[str, float] = {}
+        # Relay-fault bookkeeping, keyed per (device_id, channel) because a
+        # 2PM can have one welded contact and one healthy one. Streaks count
+        # consecutive polls where the channel reported "open, but drawing
+        # power"; ``_relay_healthy_since`` runs the other way and drives the
+        # deliberately slower clear (see relay_fault.STUCK_CLEAR_SECONDS).
+        self._relay_fault_streak: dict[tuple[str, int], int] = {}
+        self._relay_fault_since: dict[tuple[str, int], float | None] = {}
+        self._relay_healthy_since: dict[tuple[str, int], float | None] = {}
+        # The published verdicts. Read by the "Relay fault" binary sensors
+        # and by the repair card; entries survive a device's absence from a
+        # poll, since a device that dies with a welded contact is still
+        # welded shut.
+        self.relay_faults: set[tuple[str, int]] = set()
 
     # ── Offline detection bookkeeping ─────────────────────────────────
 
@@ -475,6 +496,106 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         except (TypeError, ValueError):
             minutes = OFFLINE_AFTER_DEFAULT
         return max(minutes, 1.0) * 60.0
+
+    @property
+    def relay_fault_detection(self) -> bool:
+        """Whether the welded-contact detector is switched on."""
+        return bool(
+            self._options.get(
+                CONF_RELAY_FAULT_DETECTION, RELAY_FAULT_DETECTION_DEFAULT
+            )
+        )
+
+    # ── Relay-fault bookkeeping ───────────────────────────────────────
+
+    def _evaluate_relay_faults(self, now: float) -> None:
+        """Judge every metered switching channel in the current snapshot.
+
+        Only devices that checked in on THIS poll are judged — evidence has
+        to be fresh in both directions. A device that freezes keeps
+        re-serving its last payload for as long as the cloud caches it, so
+        counting polls would let one stale snapshot be repeated into a
+        verdict; and by the same token a repeated agreeing payload must not
+        be allowed to clear one.
+
+        Standing verdicts therefore survive a device going quiet, which is
+        the correct behaviour rather than a side effect: a welded contact
+        does not unweld when the device drops off the cloud, and the load
+        it is feeding keeps running.
+        """
+        if not self.relay_fault_detection:
+            if self.relay_faults:
+                self.relay_faults.clear()
+                self._relay_fault_streak.clear()
+                self._relay_fault_since.clear()
+                self._relay_healthy_since.clear()
+            async_manage_relay_fault_issue(
+                self.hass, self._entry, active=False, faults=set(), names={}
+            )
+            return
+
+        for device_id, info in self.devices.items():
+            if not self.is_enabled(device_id):
+                continue
+            # ``_record_checkin`` stamps this poll's ``now`` on the record
+            # exactly when the payload fingerprint changed, so equality here
+            # IS "the device reported something new this time round".
+            record = self.checkins.get(device_id)
+            if record is None or record.last_checkin != now:
+                continue
+            for reading in iter_relay_readings(info.get("status", {})):
+                key = (device_id, reading.channel)
+                if reading.disagrees:
+                    self._relay_fault_streak[key] = (
+                        self._relay_fault_streak.get(key, 0) + 1
+                    )
+                    if self._relay_fault_since.get(key) is None:
+                        self._relay_fault_since[key] = now
+                    self._relay_healthy_since[key] = None
+                    if relay_fault_verdict(
+                        self._relay_fault_streak[key],
+                        self._relay_fault_since.get(key),
+                        now,
+                    ):
+                        self.relay_faults.add(key)
+                    continue
+
+                # Agreement. The streak restarts immediately — a raised
+                # verdict does NOT, because a single spurious zero-watt
+                # sample must not retract a standing warning.
+                self._relay_fault_streak[key] = 0
+                self._relay_fault_since[key] = None
+                if self._relay_healthy_since.get(key) is None:
+                    self._relay_healthy_since[key] = now
+                if key in self.relay_faults and relay_clear_verdict(
+                    self._relay_healthy_since.get(key), now
+                ):
+                    self.relay_faults.discard(key)
+
+        async_manage_relay_fault_issue(
+            self.hass,
+            self._entry,
+            active=bool(self.relay_faults),
+            faults=set(self.relay_faults),
+            names=self._display_names({d for d, _ in self.relay_faults}),
+        )
+
+    def has_relay_fault(self, device_id: str, channel: int) -> bool:
+        """Whether this channel is currently judged to have a stuck contact."""
+        return (device_id, channel) in self.relay_faults
+
+    def relay_fault_power(self, device_id: str, channel: int) -> float | None:
+        """Return the load currently measured on a channel reporting *off*.
+
+        Surfaced on the entity because the number is the whole argument: it
+        is the difference between "something is drawing 85 W through a relay
+        that says it is open" and an unexplained warning.
+        """
+        status = self.devices.get(device_id, {}).get("status", {})
+        for reading in iter_relay_readings(status):
+            if reading.channel == channel:
+                return reading.power if not reading.output else None
+        return None
 
     # ── Deep-sleep freshness bookkeeping (#13) ────────────────────────
 
@@ -736,6 +857,8 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # not a sustained rate limit.
         self._note_poll_not_rate_limited()
         self._evaluate_missing_devices(set(new_devices))
+        # Reads ``self.devices``, so it must stay below the assignment above.
+        self._evaluate_relay_faults(now)
 
         return new_devices
 

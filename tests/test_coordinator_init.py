@@ -44,6 +44,10 @@ REQUIRED = {
     "_rate_limit_reported",
     "_missing_streak",
     "_missing_since",
+    "_relay_fault_streak",
+    "_relay_fault_since",
+    "_relay_healthy_since",
+    "relay_faults",
 }
 
 

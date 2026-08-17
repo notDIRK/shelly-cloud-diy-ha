@@ -58,11 +58,13 @@
         "data": {
           "poll_interval": "Abfrageintervall (Sekunden)",
           "offline_after_minutes": "Gerät als offline melden nach (Minuten)",
+          "relay_fault_detection": "Vor einem Relais warnen, das nicht mehr öffnet",
           "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
           "offline_after_minutes": "2–1440 min, Standard 30. Der Sensor „Reporting“ eines Geräts fällt ab, sobald das Gerät so lange nichts mehr gemeldet hat. Das ist nur ein Basiswert: ein von Natur aus stilleres Gerät bekommt automatisch ein weiteres Fenster, Batterie- und BLE-Geräte werden getrennt behandelt. Ein kleinerer Wert beschleunigt die Erkennung deshalb vor allem bei Geräten, die durchgehend melden — etwa Zwischenstecker mit Leistungsmessung.",
+          "relay_fault_detection": "Standardmäßig an. Beobachtet jeden Schaltkanal, der seinen eigenen Ausgang misst, und warnt, wenn das Relais sich als offen meldet, während weiterhin eine echte Last durch es fließt — ein verschweißter Kontakt. Abschalten, wenn ein Shelly in einer Wechselschaltung sitzt, wo der andere Schalter Strom durch die Messung schicken kann, obwohl das Relais wirklich offen ist.",
           "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
         }
       },
@@ -174,6 +176,10 @@
     "history_import_failed": {
       "title": "Historische Energiedaten konnten nicht importiert werden",
       "description": "Der Abgleich der historischen Energiedaten für {entry_title} ist zweimal gelaufen, ohne etwas zu importieren. Die Live-Daten deiner Geräte sind davon nicht betroffen — nur der Import früherer Energiewerte in die Langzeitstatistik.\n\nMeistens ist die URL des lokalen Gateways falsch oder das Gateway ist von Home Assistant aus nicht erreichbar.\n\nSo gehst du vor:\n\n1. Öffne Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren und prüfe die URL des lokalen Gateways inklusive Schema und Port (z. B. `http://192.168.1.50:8080`).\n2. Stelle sicher, dass das Gateway läuft und von Home Assistant aus erreichbar ist.\n3. Nutzt du es nicht mehr, leere das Feld — damit ist der Import aus.\n\nDer Abgleich läuft einmal beim Start und danach täglich. Willst du eine Korrektur sofort prüfen, führe die Aktion **Historische Energiedaten herunterladen und konvertieren** unter Entwicklerwerkzeuge → Aktionen aus, statt zu warten."
+    },
+    "relay_fault": {
+      "title": "Ein Shelly-Relais schaltet nicht mehr ab",
+      "description": "{count} Schaltkanal/-kanäle von {entry_title} haben das Relais als **offen** gemeldet, während die geräteeigene Leistungsmessung weiterhin eine Last gemessen hat — mindestens zwei Minuten lang.\n\nGerät(e): {devices}\n\nSo sieht ein verschweißter Relaiskontakt aus. Der Aktor nimmt weiter Befehle an und meldet weiter *aus*, die Last schaltet aber nie wirklich ab — alles, was auf dem Abschalten beruht (eine Automation, ein Zeitplan, ein Bewegungsmelder), hört damit unbemerkt auf zu funktionieren, und die Last verbraucht weiter Strom.\n\nWas zu tun ist:\n\n1. Prüfen, ob die Last tatsächlich noch läuft. Der Diagnose-Sensor „Relay fault“ am Gerät führt die gemessene Leistung als Attribut mit.\n2. Wenn ja: den Aktor als defekt behandeln und den Austausch einplanen. Ein Kontakt, der einmal verschweißt, tut es wieder — und per Software ist er nicht mehr abzuschalten, nur noch über die Sicherung.\n3. Läuft die Last wirklich nicht, führt die Verdrahtung womöglich Strom an diesem Relais vorbei (etwa eine Wechselschaltung). Diese Warnung lässt sich in den Optionen der Integration abschalten.\n\nDie Warnung verschwindet von selbst, sobald der Kanal fünf Minuten lang wieder mit seiner eigenen Messung übereinstimmt."
     }
   }
 }

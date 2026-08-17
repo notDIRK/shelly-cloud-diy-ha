@@ -101,6 +101,7 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 | ☁️ **Cloud polling** | Reads device state for every device visible to your Shelly account — owned, shared, remote, and BLE-bridged (Shelly BLU family via a BLU Gateway). | ✅ shipped |
 | 🔌 **Opt-in entities** | Switches, lights, covers, sensors, binary sensors, buttons — materialised only for the devices you choose, so you avoid duplicates with the LAN integration. | ✅ shipped |
 | 📡 **Offline detection** | A per-device **Reporting** sensor that turns off when a device stops checking in — the signal `cloud.connected` cannot give you (see below). | ✅ shipped |
+| ⚡ **Stuck-contact warning** | Warns when a relay reports itself as open while the device's own meter still sees a load — a welded contact (see below). | ✅ shipped |
 | 📈 **Energy history import** | Imports historical energy data into Home Assistant long-term statistics. | ✅ shipped |
 | ⚙️ **Config + options flow** | Paste your `auth_key`; tune the poll interval and per-device enablement later. | ✅ shipped |
 | 🌍 **Localised UI** | English and German translations for every user-visible string. | ✅ shipped |
@@ -154,6 +155,47 @@ without turning your quiet devices into false alarms.
 
 If polling itself breaks (cloud outage, rejected `auth_key`), the sensor goes
 **unavailable** rather than reporting your whole fleet as dead.
+
+### Knowing when a relay stops switching off
+
+A switching Shelly reports what it *commanded* and what it *measures* in the
+same payload. When the relay says open while the meter still sees a load, the
+contact has welded shut — the actuator keeps accepting commands and keeps
+reporting *off*, but the load never actually switches off. Anything built on
+switching it off (an automation, a schedule, a motion sensor) silently stops
+working, and nothing in Home Assistant says so.
+
+Every switching channel that meters its own output therefore gets a **Relay
+fault** binary sensor (diagnostic, `problem` class), and a repair notification
+appears when one trips. The measured wattage rides along as an attribute,
+because that number is the whole argument.
+
+This was built against a unit that actually failed this way — a Shelly 1PM Mini
+Gen3 reporting `output: false` and 85.2 W at the same time, for as long as it
+was watched, with the lamp visibly on and unswitchable from software. Two things
+that run taught, both of which are in the detector:
+
+- **The moment right after a command lies.** One switch-off produced a reading
+  of 0 W for about 45 seconds while the load was demonstrably still running. So
+  the disagreement has to persist — five check-ins *and* two minutes — before
+  anything is said, and a single agreeing reading does **not** retract a
+  standing warning. Clearing needs five quiet minutes.
+- **The energy counter is too coarse to help.** It stood still for 80 seconds
+  and then jumped by 1.0 Wh at once. It is not part of the verdict.
+
+Counted are the device's own check-ins, not our polls: a device that freezes
+keeps re-serving its last payload, and counting polls would let one stale
+snapshot be repeated into an accusation. A warning already raised is kept when a
+device goes quiet — a welded contact does not unweld because the device dropped
+off the cloud.
+
+Deliberately conservative: anything under 5 W is ignored (snubbers, LED drivers
+and meter noise all put a trickle on an open contact), clamp-metering devices
+are never judged because their measurement has no defined relationship to any
+contact next to it, and Gen1 roller-shutter devices are skipped entirely — there
+"relay off, power flowing" is just a moving shutter. If a Shelly of yours sits in
+a two-way circuit, where the other switch can push current through the meter
+while the relay is genuinely open, switch the detector off in the options.
 
 ---
 

@@ -16,13 +16,14 @@ non-reserved filename sidesteps the platform contract entirely at zero
 cost; if a real fix flow is ever wanted, add a proper ``repairs.py``
 exposing ``async_create_fix_flow`` at that point.
 
-All three issues are informational and non-persistent. None of them can
+All four issues are informational and non-persistent. None of them can
 be resolved by an in-process button press — a sustained rate limit, a
-device that vanished from the Shelly account, and an unreachable local
-gateway are all resolved outside Home Assistant — so a confirm-only Fix
-button would lie to the user and the card would simply reappear on the
-next poll. Every condition is re-derived from live polling (or the next
-sync cycle) after a restart, so nothing needs to be persisted.
+device that vanished from the Shelly account, an unreachable local
+gateway and a welded relay contact are all resolved outside Home
+Assistant — so a confirm-only Fix button would lie to the user and the
+card would simply reappear on the next poll. Every condition is
+re-derived from live polling (or the next sync cycle) after a restart,
+so nothing needs to be persisted.
 
 Issue ids are suffixed with the config entry id: the issue registry keys
 on ``(domain, issue_id)`` alone, so a second Shelly account would
@@ -86,9 +87,14 @@ HISTORY_IMPORT_MIN_FAILURES = 2
 # inside the same Home Assistant session rather than a day later.
 HISTORY_IMPORT_RETRY_S = 900.0
 
+# Same bound and the same reason as MISSING_DEVICE_MAX_LISTED: a fleet-wide
+# condition must not render a card made of a hundred device ids.
+RELAY_FAULT_MAX_LISTED = 5
+
 ISSUE_RATE_LIMITED = "rate_limited"
 ISSUE_MISSING_DEVICES = "missing_devices"
 ISSUE_HISTORY_IMPORT_FAILED = "history_import_failed"
+ISSUE_RELAY_FAULT = "relay_fault"
 
 
 # ── Pure verdict helpers (no hass — unit-testable) ────────────────────
@@ -267,6 +273,65 @@ def async_manage_missing_devices_issue(
         ir.async_delete_issue(hass, DOMAIN, iid)
 
 
+def format_relay_fault_list(
+    faults: set[tuple[str, int]], names: dict[str, str]
+) -> str:
+    """Render the affected switching channels for the card.
+
+    The channel is only spelled out from the second one onwards: on a
+    single-channel device "channel 1" is noise, on a 2PM it is the whole
+    point of the line.
+    """
+    parts = []
+    for device_id, channel in sorted(faults)[:RELAY_FAULT_MAX_LISTED]:
+        label = (
+            f"{_clamp_name(names[device_id])} ({device_id})"
+            if names.get(device_id)
+            else device_id
+        )
+        parts.append(label if channel == 0 else f"{label} channel {channel + 1}")
+    text = ", ".join(parts)
+    if len(faults) > len(parts):
+        text += f", … (+{len(faults) - len(parts)})"
+    return text
+
+
+@callback
+def async_manage_relay_fault_issue(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    active: bool,
+    faults: set[tuple[str, int]],
+    names: dict[str, str],
+) -> None:
+    """Create or clear the stuck-contact issue for ``entry``.
+
+    Upserts rather than delete-then-create for the same reason as the
+    missing-devices card: a second failing actuator must not silently
+    un-ignore the first one.
+    """
+    iid = issue_id(ISSUE_RELAY_FAULT, entry.entry_id)
+    if active:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            iid,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_RELAY_FAULT,
+            translation_placeholders={
+                "entry_title": entry.title,
+                "count": str(len(faults)),
+                "devices": format_relay_fault_list(faults, names),
+            },
+        )
+    else:
+        # A no-op when the id was never raised, so no existence probe.
+        ir.async_delete_issue(hass, DOMAIN, iid)
+
+
 @callback
 def async_manage_history_import_issue(
     hass: HomeAssistant, entry: ConfigEntry, *, active: bool
@@ -298,6 +363,7 @@ def async_clear_entry_issues(
         ISSUE_RATE_LIMITED,
         ISSUE_MISSING_DEVICES,
         ISSUE_HISTORY_IMPORT_FAILED,
+        ISSUE_RELAY_FAULT,
     ):
         # ``async_delete_issue`` on a non-existent id is an explicit no-op.
         ir.async_delete_issue(hass, DOMAIN, issue_id(kind, entry.entry_id))
