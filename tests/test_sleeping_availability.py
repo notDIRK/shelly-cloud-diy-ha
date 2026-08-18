@@ -68,6 +68,48 @@ HT_GEN3_STATUS: dict[str, Any] = {
     "_sleeping": True,
 }
 
+# Redacted status of the H&T Gen3 from issue #32: batteries removed, running
+# off USB-C — and *still* waking out of deep sleep every 600 s, which is why
+# the cached snapshot keeps reporting a dead cloud session for a live device.
+USB_SLEEPER_STATUS: dict[str, Any] = {
+    "id": "84fce63f8338",
+    "code": "S3SN-0U12A",
+    "cloud": {"connected": False},
+    "ws": {"connected": False},
+    "mqtt": {"connected": False},
+    "wifi": {"status": "got ip", "rssi": -51},
+    "temperature:0": {"id": 0, "tC": 25.8, "tF": 78.5},
+    "humidity:0": {"id": 0, "rh": 43.7},
+    "devicepower:0": {
+        "id": 0,
+        "battery": {"V": 0, "percent": 0},
+        "external": {"present": True},
+    },
+    "sys": {
+        "unixtime": 1786993324,
+        "uptime": 5,
+        "wakeup_period": 600,
+        "wakeup_reason": {"boot": "deepsleep_wake", "cause": "status_update"},
+    },
+    "serial": 1786993324,
+    "_updated": "2026-08-17 19:02:05",
+    "_sleeping": True,
+}
+
+# The counter-case #13 asked for: same hardware on permanent power, awake for
+# hours, only the wakeup_period left over from its battery days. Its transport
+# flag means something again, so it must not be excused by the sleep window.
+AWAKE_ON_USB_STATUS: dict[str, Any] = {
+    **USB_SLEEPER_STATUS,
+    "sys": {
+        "unixtime": 1786993324,
+        "uptime": 43200,
+        "wakeup_period": 600,
+        "wakeup_reason": {"boot": "poweron", "cause": None},
+    },
+}
+del AWAKE_ON_USB_STATUS["_sleeping"]
+
 # What a mains-powered device looks like while genuinely disconnected: no
 # wakeup period, no sleeping marker. Must stay unavailable.
 MAINS_OFFLINE_STATUS: dict[str, Any] = {
@@ -138,12 +180,44 @@ def test_sleep_period_falls_back_for_sleeping_marker_only() -> None:
     assert sleep_period_s(status) == SLEEP_ASSUMED_PERIOD_S
 
 
-def test_externally_powered_device_is_not_sleeping() -> None:
-    """A battery device on USB power stays connected — the flag is honest again."""
-    status = {
-        **HT_GEN3_STATUS,
-        "devicepower:0": {"battery": {"percent": 100}, "external": {"present": True}},
-    }
+def test_externally_powered_device_that_stopped_sleeping_is_not_sleeping() -> None:
+    """USB power *and* no sign of sleep — the transport flag is honest again."""
+    assert sleep_period_s(AWAKE_ON_USB_STATUS) == 0
+
+
+def test_externally_powered_device_that_keeps_sleeping_still_sleeps() -> None:
+    """Issue #32: an H&T Gen3 on USB-C keeps its wakeup schedule.
+
+    The reporter pulled the batteries and ran the device off USB-C. It still
+    woke every 600 s, so the cached snapshot still carried
+    ``cloud.connected: false`` — and treating external power as proof of
+    being awake flapped every entity of that device between available and
+    unavailable roughly every six minutes.
+    """
+    assert sleep_period_s(USB_SLEEPER_STATUS) == 600
+
+
+def test_deep_sleep_wake_alone_proves_sleep_on_external_power() -> None:
+    """Without the cloud marker, a fresh deep-sleep boot is evidence enough."""
+    status = {**USB_SLEEPER_STATUS}
+    del status["_sleeping"]
+    assert sleep_period_s(status) == 600
+
+
+def test_stale_deep_sleep_wake_expires_once_uptime_outgrows_the_period() -> None:
+    """A device that woke and then stayed awake must not look asleep forever."""
+    status = {**USB_SLEEPER_STATUS}
+    del status["_sleeping"]
+    status["sys"] = {**status["sys"], "uptime": 601}
+    assert sleep_period_s(status) == 0
+
+
+@pytest.mark.parametrize("uptime", [None, "5", True, -1, {"s": 5}])
+def test_unusable_uptime_is_not_read_as_a_fresh_wake(uptime: Any) -> None:
+    """Only a real, plausible uptime may keep a mains-fed device sleeping."""
+    status = {**USB_SLEEPER_STATUS}
+    del status["_sleeping"]
+    status["sys"] = {**status["sys"], "uptime": uptime}
     assert sleep_period_s(status) == 0
 
 
@@ -260,17 +334,26 @@ def test_mains_device_is_never_treated_as_sleeping() -> None:
 
 
 def test_history_is_dropped_when_a_device_stops_sleeping() -> None:
-    """A battery device switched to external power must not keep stale history."""
+    """A battery device that stopped sleeping must not keep stale history."""
     coord = _coordinator()
     coord._evaluate_sleep_state(DEVICE_ID, HT_GEN3_STATUS, 0.0)
     assert DEVICE_ID in coord._sleep_seen
 
-    powered = {
-        **HT_GEN3_STATUS,
-        "devicepower:0": {"battery": {"percent": 100}, "external": {"present": True}},
-    }
-    assert coord._evaluate_sleep_state(DEVICE_ID, powered, 1.0) == (False, None)
+    assert coord._evaluate_sleep_state(DEVICE_ID, AWAKE_ON_USB_STATUS, 1.0) == (
+        False,
+        None,
+    )
     assert DEVICE_ID not in coord._sleep_seen
+
+
+def test_usb_powered_sleeper_keeps_its_check_in_window() -> None:
+    """Issue #32: the window survives the switch to external power."""
+    coord = _coordinator()
+    sleeping, stale_at = coord._evaluate_sleep_state(DEVICE_ID, USB_SLEEPER_STATUS, 0.0)
+    assert sleeping is True
+    # 600 s period is below the floor, so the floor decides the window.
+    assert stale_at == SLEEP_STALE_FLOOR_S
+    assert DEVICE_ID in coord._sleep_seen
 
 
 # ── _async_update_data: the record the entities actually read ─────────
