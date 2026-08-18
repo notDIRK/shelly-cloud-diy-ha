@@ -381,7 +381,8 @@ Protokollierung aktivieren) und das Problem zu reproduzieren.
 
 Vollständiger Plan mit Scope, Nicht-Zielen und Einschränkungen pro Meilenstein:
 [`docs/ROADMAP.md`](docs/ROADMAP.md). Feature-Tiefenblicke:
-[`docs/FEATURE-HIGHLIGHTS.de.md`](docs/FEATURE-HIGHLIGHTS.de.md).
+[`docs/FEATURE-HIGHLIGHTS.de.md`](docs/FEATURE-HIGHLIGHTS.de.md). Was jedes
+stabile Release geändert hat: [`CHANGELOG.md`](CHANGELOG.md).
 
 ### ✅ Meilenstein 1 — Cloud-Polling *(ausgeliefert, im HACS-Default-Store)*
 

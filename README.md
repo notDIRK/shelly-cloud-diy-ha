@@ -364,7 +364,8 @@ and reproducing the problem adds a useful timeline.
 
 Full plan with per-milestone scope, non-goals, and limitations:
 [`docs/ROADMAP.md`](docs/ROADMAP.md). Feature deep-dives:
-[`docs/FEATURE-HIGHLIGHTS.md`](docs/FEATURE-HIGHLIGHTS.md).
+[`docs/FEATURE-HIGHLIGHTS.md`](docs/FEATURE-HIGHLIGHTS.md). What every stable
+release changed: [`CHANGELOG.md`](CHANGELOG.md).
 
 ### ✅ Milestone 1 — Cloud polling *(shipped, in the HACS default store)*
 
