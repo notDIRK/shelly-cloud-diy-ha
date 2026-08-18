@@ -296,9 +296,13 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             action = user_input.get("bulk_action", "manual")
 
             if action == "all":
-                return self._show_devices_form(options, all_ids, default_enabled=all_ids)
+                return self._show_devices_form(
+                    options, all_ids, default_enabled=all_ids, bulk_applied=True
+                )
             if action == "none":
-                return self._show_devices_form(options, all_ids, default_enabled=[])
+                return self._show_devices_form(
+                    options, all_ids, default_enabled=[], bulk_applied=True
+                )
 
             # action == "manual" → persist whatever is currently ticked
             raw = user_input.get(CONF_ENABLED_DEVICES) or []
@@ -321,13 +325,35 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Initial render — every device pre-ticked.
         return self._show_devices_form(options, all_ids, default_enabled=all_ids)
 
+
+    async def async_step_devices_bulk(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the form a bulk action re-rendered.
+
+        A separate step id exists only so that form can carry its own
+        translated title and text; what the user submits from it means
+        exactly what it means on ``devices``, so it is handled there.
+        """
+        return await self.async_step_devices(user_input)
+
     def _show_devices_form(
         self,
         options: list[SelectOptionDict],
         all_ids: list[str],
         default_enabled: list[str],
+        *,
+        bulk_applied: bool = False,
     ) -> FlowResult:
-        """Render the device-picker form with the given default ticks."""
+        """Render the device-picker form with the given default ticks.
+
+        ``bulk_applied`` re-renders under a second step id. The form is
+        otherwise identical — the point is the text: a bulk action only
+        updates the ticks and saves nothing, and the previous single-step
+        version gave no sign of that. It redrew a form that looked exactly
+        like the one just submitted, which reads as "saved" and cost a real
+        user their selection.
+        """
         schema = vol.Schema(
             {
                 vol.Required(
@@ -355,10 +381,14 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(
-            step_id="devices",
+            step_id="devices_bulk" if bulk_applied else "devices",
             data_schema=schema,
             description_placeholders={
                 "total": str(len(self._pending_devices)),
+                # Makes the current state visible on both forms: a picker
+                # that shows neither what is ticked nor whether it is saved
+                # leaves the user guessing on every submit.
+                "selected": str(len(default_enabled)),
             },
         )
 
@@ -537,9 +567,13 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             action = user_input.get("bulk_action", "manual")
 
             if action == "all":
-                return self._show_devices_form(options, all_ids, default_enabled=all_ids)
+                return self._show_devices_form(
+                    options, all_ids, default_enabled=all_ids, bulk_applied=True
+                )
             if action == "none":
-                return self._show_devices_form(options, all_ids, default_enabled=[])
+                return self._show_devices_form(
+                    options, all_ids, default_enabled=[], bulk_applied=True
+                )
 
             raw = user_input.get(CONF_ENABLED_DEVICES) or []
             if not isinstance(raw, list):
@@ -566,13 +600,35 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
 
         return self._show_devices_form(options, all_ids, default_enabled=default_enabled)
 
+
+    async def async_step_devices_bulk(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the form a bulk action re-rendered.
+
+        A separate step id exists only so that form can carry its own
+        translated title and text; what the user submits from it means
+        exactly what it means on ``devices``, so it is handled there.
+        """
+        return await self.async_step_devices(user_input)
+
     def _show_devices_form(
         self,
         options: list[SelectOptionDict],
         all_ids: list[str],
         default_enabled: list[str],
+        *,
+        bulk_applied: bool = False,
     ) -> FlowResult:
-        """Render the device-picker form with the given default ticks."""
+        """Render the device-picker form with the given default ticks.
+
+        ``bulk_applied`` re-renders under a second step id. The form is
+        otherwise identical — the point is the text: a bulk action only
+        updates the ticks and saves nothing, and the previous single-step
+        version gave no sign of that. It redrew a form that looked exactly
+        like the one just submitted, which reads as "saved" and cost a real
+        user their selection.
+        """
         schema = vol.Schema(
             {
                 vol.Required(
@@ -600,10 +656,14 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(
-            step_id="devices",
+            step_id="devices_bulk" if bulk_applied else "devices",
             data_schema=schema,
             description_placeholders={
                 "total": str(len(self._pending_devices)),
+                # Makes the current state visible on both forms: a picker
+                # that shows neither what is ticked nor whether it is saved
+                # leaves the user guessing on every submit.
+                "selected": str(len(default_enabled)),
             },
         )
 

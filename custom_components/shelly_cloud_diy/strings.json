@@ -19,7 +19,7 @@
       },
       "devices": {
         "title": "Choose devices to expose",
-        "description": "The Shelly Cloud account exposes {total} device(s). Pick a bulk action above, or adjust the list below directly. Offline devices are marked with ⚠.",
+        "description": "The Shelly Cloud account exposes {total} device(s). Pick a bulk action above, or adjust the list below directly. Offline devices are marked with ⚠. {selected} of them are ticked right now.",
         "data": {
           "bulk_action": "Bulk action",
           "enabled_devices": "Devices (tick/untick individually)"
@@ -34,6 +34,18 @@
         "description": "The Shelly Cloud rejected the stored Authorization cloud key. Paste a fresh key from the Shelly App (User settings → Authorization cloud key) to restore access.",
         "data": {
           "auth_key": "Authorization cloud key"
+        }
+      },
+      "devices_bulk": {
+        "title": "Selection updated — not saved yet",
+        "description": "{selected} of {total} device(s) are now ticked. **Nothing has been saved yet** — press Submit to save this selection, or adjust the ticks first.",
+        "data": {
+          "bulk_action": "Bulk action",
+          "enabled_devices": "Devices (tick/untick individually)"
+        },
+        "data_description": {
+          "bulk_action": "\"Tick all\" or \"Untick all\" overrides the manual list below on save.",
+          "enabled_devices": "Only ticked devices produce Home Assistant entities."
         }
       }
     },
@@ -70,7 +82,19 @@
       },
       "devices": {
         "title": "Change device selection",
-        "description": "The Shelly Cloud account exposes {total} device(s). Pick a bulk action above, or adjust the list below directly.",
+        "description": "The Shelly Cloud account exposes {total} device(s). Pick a bulk action above, or adjust the list below directly. {selected} of them are ticked right now.",
+        "data": {
+          "bulk_action": "Bulk action",
+          "enabled_devices": "Devices (tick/untick individually)"
+        },
+        "data_description": {
+          "bulk_action": "\"Tick all\" or \"Untick all\" overrides the manual list below on save.",
+          "enabled_devices": "Only ticked devices produce Home Assistant entities."
+        }
+      },
+      "devices_bulk": {
+        "title": "Selection updated — not saved yet",
+        "description": "{selected} of {total} device(s) are now ticked. **Nothing has been saved yet** — press Submit to save this selection, or adjust the ticks first.",
         "data": {
           "bulk_action": "Bulk action",
           "enabled_devices": "Devices (tick/untick individually)"
