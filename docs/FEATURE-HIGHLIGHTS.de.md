@@ -32,6 +32,15 @@ BLU-Familie hinter einem Gateway). Gebaut auf einem klaren Prinzip:
   im eigenen LAN deckt die native Integration das schon ab; der Punkt sind die
   Geräte, zu denen sie **keinen lokalen Weg** hat — geteilt, entfernt oder BLU
   hinter fremdem Gateway — wo es sonst kein einziges Lebenszeichen gibt.
+- **Merkt, wenn ein Relais nicht mehr abschaltet** — ein verschweißter Kontakt
+  ist lautlos: der Aktor nimmt weiter Befehle an und meldet weiter *aus*, während
+  die Last nie ausgeht; jede Automatisierung, die aufs Ausschalten baut, hört
+  still auf zu funktionieren. Ein *Relay-fault*-Sensor je Kanal fängt das ab,
+  indem er den Befehl des Geräts gegen dessen eigene Messung im selben Payload
+  stellt. Gleiche Ehrlichkeit wie oben: im eigenen LAN kann ein Template-Sensor
+  über die nativen Entitäten dasselbe — der Wert liegt bei den Geräten ohne
+  lokalen Weg. Gebaut an Hardware, die genau so ausgefallen ist (`output: false`
+  bei 85 W).
 - Die einzige gepflegte HA-Integration, die Cloud-Control-API-Zugriff **mit
   State-Rücklesen, geteilten Geräten und Gen1/Gen2/BLE-Abdeckung** vereint.
 

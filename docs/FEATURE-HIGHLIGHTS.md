@@ -32,6 +32,15 @@ family behind a gateway). But it is built on one firm principle:
   on your own LAN the native integration already covers this; the point here is
   the devices it has **no local path to** — shared, remote, or BLU behind
   someone else's gateway — where this is the only liveness signal that exists.
+- **Notices when a relay stops switching off** — a welded contact is silent:
+  the actuator keeps accepting commands and keeps reporting *off* while the load
+  never switches off, so every automation built on switching it off quietly stops
+  working. A per‑channel *Relay fault* sensor catches it by reading what the
+  device commanded against what its own meter measured, in the same payload.
+  Same honesty as above: on your own LAN a template sensor over the native
+  entities can do this too — the value here is the devices you have no local
+  path to. Built against hardware that actually failed this way (`output: false`
+  at 85 W).
 - The only maintained HA integration combining Cloud‑Control‑API access **with
   state read‑back, shared‑device support, and Gen1/Gen2/BLE coverage** at once.
 
