@@ -60,6 +60,21 @@ OFFLINE_AFTER_DEFAULT = 30
 OFFLINE_AFTER_MIN = 2
 OFFLINE_AFTER_MAX = 24 * 60
 
+# ── Relay fault detection ("Relay fault" binary sensor) ────────────
+#
+# Watch every metered switching channel for the contradiction "relay
+# reports open, meter reports a load" — a welded contact. On by default:
+# the thresholds in ``relay_fault.py`` are deliberately conservative, and
+# an actuator that can no longer switch off is worth an unsolicited word.
+#
+# The escape hatch exists for wiring the detector cannot see. A Shelly
+# sitting in one leg of a two-way circuit can have current pushed through
+# its meter by the *other* switch while its own relay is genuinely open,
+# which looks identical from the payload. Whoever wired that knows; the
+# integration cannot.
+CONF_RELAY_FAULT_DETECTION = "relay_fault_detection"
+RELAY_FAULT_DETECTION_DEFAULT = True
+
 # ── Historical sync (unchanged from pre-pivot) ─────────────────────
 
 HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily

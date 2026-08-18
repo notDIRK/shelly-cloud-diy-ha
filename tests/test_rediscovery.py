@@ -67,6 +67,10 @@ def _inert_repair_issues(monkeypatch):
         coordinator_mod, "async_manage_missing_devices_issue",
         lambda hass, entry, *, active, missing, names: None,
     )
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_relay_fault_issue",
+        lambda hass, entry, *, active, faults, names: None,
+    )
 
 DEVICE_ID = "ecda3bc59ec8"
 OTHER_ID = "d0ef76c7a454"
@@ -130,6 +134,10 @@ def _coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     coord._rate_limit_reported = False
     coord._missing_streak = {}
     coord._missing_since = {}
+    coord._relay_fault_streak = {}
+    coord._relay_fault_since = {}
+    coord._relay_healthy_since = {}
+    coord.relay_faults = set()
     return coord
 
 

@@ -64,11 +64,14 @@ from custom_components.shelly_cloud_diy.repair_issues import (  # noqa: E402
     ISSUE_HISTORY_IMPORT_FAILED,
     ISSUE_MISSING_DEVICES,
     ISSUE_RATE_LIMITED,
+    ISSUE_RELAY_FAULT,
     async_clear_entry_issues,
     async_manage_history_import_issue,
     async_manage_missing_devices_issue,
     async_manage_rate_limit_issue,
+    async_manage_relay_fault_issue,
     format_device_list,
+    format_relay_fault_list,
     issue_id,
 )
 
@@ -482,6 +485,9 @@ async def test_clear_entry_issues_removes_only_this_entry(
             hass, target, active=True, missing={"aaaa"}, names={}
         )
         async_manage_history_import_issue(hass, target, active=True)
+        async_manage_relay_fault_issue(
+            hass, target, active=True, faults={("aaaa", 0)}, names={}
+        )
     await hass.async_block_till_done()
 
     reg = ir.async_get(hass)
@@ -489,8 +495,9 @@ async def test_clear_entry_issues_removes_only_this_entry(
         ISSUE_RATE_LIMITED,
         ISSUE_MISSING_DEVICES,
         ISSUE_HISTORY_IMPORT_FAILED,
+        ISSUE_RELAY_FAULT,
     )
-    assert len(reg.issues) == 6
+    assert len(reg.issues) == 8
 
     async_clear_entry_issues(hass, entry)
     await hass.async_block_till_done()
@@ -504,7 +511,7 @@ async def test_clear_entry_issues_removes_only_this_entry(
             reg.async_get_issue(DOMAIN, issue_id(kind, other_entry.entry_id))
             is not None
         )
-    assert len(reg.issues) == 3
+    assert len(reg.issues) == 4
 
 
 async def test_clear_entry_issues_on_a_clean_entry_is_a_noop(
@@ -516,3 +523,69 @@ async def test_clear_entry_issues_on_a_clean_entry_is_a_noop(
 
     assert ir.async_get(hass).issues == {}
     assert _actions(events) == []
+
+
+async def test_relay_fault_wrapper_creates_expected_issue(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """The stuck-contact wrapper renders the affected channels.
+
+    Worth running against the real registry rather than only as a pure
+    function: this card is the one surface a user sees without having gone
+    looking for a diagnostic entity first, so a placeholder the registry
+    refuses to render would make the whole feature silent.
+    """
+    faults = {("5432044e9768", 0), ("3494546e1f2a", 1)}
+    names = {"5432044e9768": "Büro Licht"}
+
+    async_manage_relay_fault_issue(
+        hass, entry, active=True, faults=faults, names=names
+    )
+    await hass.async_block_till_done()
+
+    reg = ir.async_get(hass)
+    issue = reg.async_get_issue(
+        DOMAIN, issue_id(ISSUE_RELAY_FAULT, entry.entry_id)
+    )
+
+    assert issue is not None
+    assert issue.translation_key == ISSUE_RELAY_FAULT
+    assert issue.severity is ir.IssueSeverity.WARNING
+    assert issue.is_fixable is False
+    assert issue.is_persistent is False
+    assert issue.translation_placeholders == {
+        "entry_title": "Shelly Cloud",
+        "count": "2",
+        "devices": format_relay_fault_list(faults, names),
+    }
+    rendered = issue.translation_placeholders["devices"]
+    assert "Büro Licht (5432044e9768)" in rendered
+    assert "3494546e1f2a channel 2" in rendered
+
+
+async def test_relay_fault_card_survives_a_second_failing_actuator(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """Upsert, not delete-then-create: a user who dismissed the card for one
+    welded relay must not have it reappear un-ignored because a second one
+    joined the list."""
+    reg = ir.async_get(hass)
+    iid = issue_id(ISSUE_RELAY_FAULT, entry.entry_id)
+
+    async_manage_relay_fault_issue(
+        hass, entry, active=True, faults={("aaaa", 0)}, names={}
+    )
+    await hass.async_block_till_done()
+    ir.async_ignore_issue(hass, DOMAIN, iid, True)
+    await hass.async_block_till_done()
+    dismissed = reg.async_get_issue(DOMAIN, iid).dismissed_version
+    assert dismissed is not None
+
+    async_manage_relay_fault_issue(
+        hass, entry, active=True, faults={("aaaa", 0), ("bbbb", 0)}, names={}
+    )
+    await hass.async_block_till_done()
+
+    issue = reg.async_get_issue(DOMAIN, iid)
+    assert issue.dismissed_version == dismissed, "the Ignore was destroyed"
+    assert issue.translation_placeholders["count"] == "2"

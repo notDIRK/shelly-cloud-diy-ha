@@ -49,6 +49,7 @@ from .const import (
     CONF_LOCAL_GATEWAY_URL,
     CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
+    CONF_RELAY_FAULT_DETECTION,
     CONF_SERVER_URI,
     DOMAIN,
     OFFLINE_AFTER_DEFAULT,
@@ -57,6 +58,7 @@ from .const import (
     POLL_INTERVAL_DEFAULT,
     POLL_INTERVAL_MAX,
     POLL_INTERVAL_MIN,
+    RELAY_FAULT_DETECTION_DEFAULT,
 )
 from .entities.descriptions import get_model_name
 from .utils import validate_gateway_url
@@ -440,6 +442,12 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                     CONF_OFFLINE_AFTER: int(
                         user_input.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT)
                     ),
+                    CONF_RELAY_FAULT_DETECTION: bool(
+                        user_input.get(
+                            CONF_RELAY_FAULT_DETECTION,
+                            RELAY_FAULT_DETECTION_DEFAULT,
+                        )
+                    ),
                 }
 
                 # Fetch the current fleet + names so the device-selection
@@ -473,6 +481,11 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
         current_offline = int(
             self.config_entry.options.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT)
         )
+        current_relay_fault = bool(
+            self.config_entry.options.get(
+                CONF_RELAY_FAULT_DETECTION, RELAY_FAULT_DETECTION_DEFAULT
+            )
+        )
 
         schema = vol.Schema(
             {
@@ -484,6 +497,9 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 ): vol.All(
                     int, vol.Range(min=OFFLINE_AFTER_MIN, max=OFFLINE_AFTER_MAX)
                 ),
+                vol.Required(
+                    CONF_RELAY_FAULT_DETECTION, default=current_relay_fault
+                ): bool,
                 vol.Optional(
                     CONF_LOCAL_GATEWAY_URL, default=current_gw
                 ): str,

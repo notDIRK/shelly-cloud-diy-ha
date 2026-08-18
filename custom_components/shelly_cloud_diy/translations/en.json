@@ -58,11 +58,13 @@
         "data": {
           "poll_interval": "Poll interval (seconds)",
           "offline_after_minutes": "Report a device as offline after (minutes)",
+          "relay_fault_detection": "Warn about a relay that no longer opens",
           "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
           "offline_after_minutes": "2–1440 min, default 30. Each device's \"Reporting\" sensor turns off once the device has been silent this long. It is only a base value: a device that is naturally quieter earns a wider window on its own, and battery or BLE devices are handled separately. Lowering it therefore mainly speeds up detection on devices that report continuously, such as power-metering plugs.",
+          "relay_fault_detection": "On by default. Watches every switching channel that meters its own output and warns when the relay reports itself as open while a real load is still flowing through it — a contact that has welded shut. Turn this off if a Shelly of yours sits in a two-way circuit, where the other switch can push current through the meter while the relay is genuinely open.",
           "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
         }
       },
@@ -174,6 +176,10 @@
     "history_import_failed": {
       "title": "Historical energy data could not be imported",
       "description": "The historical-data sync for {entry_title} has run twice without importing anything. Live device data is unaffected — only the import of past energy readings into long-term statistics.\n\nMost often the local gateway URL is wrong, or the gateway is not reachable from Home Assistant.\n\nWhat to do:\n\n1. Open Settings → Devices & services → Shelly Cloud DIY → Configure and check the local gateway URL, including the scheme and port (for example `http://192.168.1.50:8080`).\n2. Confirm the gateway is running and reachable from Home Assistant.\n3. If you no longer use it, clear the field to switch the import off.\n\nThe sync runs once at startup and then daily. To check a correction right away, run the **Download and convert historical energy data** action from Developer tools → Actions instead of waiting."
+    },
+    "relay_fault": {
+      "title": "A Shelly relay is no longer switching off",
+      "description": "{count} switching channel(s) on {entry_title} reported the relay as **open** while the device's own power meter reported a load still flowing through it, for at least two minutes.\n\nDevice(s): {devices}\n\nThis is what a welded relay contact looks like. The actuator still accepts commands and still reports *off*, but the load never actually switches off — so anything that relies on switching it off (an automation, a schedule, a motion sensor) silently stops working, and the load keeps consuming power.\n\nWhat to do:\n\n1. Check whether the load really is still running. The \"Relay fault\" diagnostic sensor on the device carries the measured wattage as an attribute.\n2. If it is, treat the actuator as defective and plan to replace it. A contact that welds once tends to do it again, and it cannot be switched off in software — only at the breaker.\n3. If the load is genuinely not running, the wiring may be feeding current past this relay (for example a two-way circuit). You can switch this warning off in the integration options.\n\nThe warning clears on its own once the channel has agreed with its own meter again for five minutes."
     }
   }
 }

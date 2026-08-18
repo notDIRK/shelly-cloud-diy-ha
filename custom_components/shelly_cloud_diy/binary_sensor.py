@@ -26,6 +26,7 @@ from .entities.descriptions import (
     BlockBinarySensorDescription,
     RpcBinarySensorDescription,
 )
+from .relay_fault import iter_relay_readings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +62,12 @@ async def async_setup_entry(
 
         if not status:
             return entities
+
+        entities.extend(
+            _create_relay_fault_sensors(
+                device_id, status, created_entities, coordinator
+            )
+        )
 
         gen = device_gen(status)
         if gen == "GBLE":
@@ -199,6 +206,88 @@ class ShellyReportingBinarySensor(ShellyBaseEntity, BinarySensorEntity):
         if record is None:
             return None
         return {"stale_after_s": int(record.stale_after_s)}
+
+
+def _create_relay_fault_sensors(
+    device_id: str,
+    status: dict[str, Any],
+    created: set[str],
+    coordinator: ShellyCloudCoordinator,
+) -> list[BinarySensorEntity]:
+    """Create one "Relay fault" sensor per metered switching channel.
+
+    Built from the status rather than from the generation, because the
+    thing that decides whether the question is answerable is not what kind
+    of device this is but whether the payload carries a relay *and* the
+    meter for that same relay — which is exactly what
+    :func:`iter_relay_readings` looks for.
+
+    Created even while the detector is switched off, so that turning the
+    option back on does not require a reload to get the entities back. The
+    verdict is then simply always ``off``.
+    """
+    entities: list[BinarySensorEntity] = []
+    for reading in iter_relay_readings(status):
+        uid = f"{device_id}_relay_fault_{reading.channel}"
+        if uid in created:
+            continue
+        created.add(uid)
+        entities.append(
+            ShellyRelayFaultBinarySensor(coordinator, device_id, reading.channel)
+        )
+    return entities
+
+
+class ShellyRelayFaultBinarySensor(ShellyBaseEntity, BinarySensorEntity):
+    """Whether a switching channel's contact has stopped opening.
+
+    ``on`` means the device reported its relay as *open* while its own
+    meter reported a real load flowing through it, for longer than any
+    post-command settling could explain. In practice that is a welded
+    contact: the actuator still accepts commands and still reports ``off``,
+    but the load never switches off. See ``relay_fault.py`` for the
+    thresholds and the hardware run they came from.
+
+    Availability is the ordinary device availability on purpose. While the
+    device is unreachable nobody can observe current flowing through it, so
+    claiming a live verdict would be an assertion about a device we cannot
+    see. A verdict already raised is retained and reappears with the
+    device.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        channel: int,
+    ) -> None:
+        """Initialize the relay fault sensor."""
+        super().__init__(coordinator, device_id, channel)
+        self._attr_unique_id = f"{device_id}_relay_fault_{channel}"
+        self._attr_name = (
+            "Relay fault" if channel == 0 else f"Relay fault {channel + 1}"
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True while this channel is judged to be stuck closed."""
+        return self.coordinator.has_relay_fault(self._device_id, self._channel)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the measured load behind the verdict.
+
+        Only while the channel reports *off*: with the relay closed the
+        number is just the ordinary consumption and would invite the reader
+        to compare it against a threshold it has nothing to do with.
+        """
+        power = self.coordinator.relay_fault_power(self._device_id, self._channel)
+        if power is None:
+            return None
+        return {"power_while_off_w": power}
 
 
 def _create_block_sensors(
