@@ -104,7 +104,7 @@ def _cloud_mac_key(cloud_id: str) -> str | None:
     return None
 
 
-def _fingerprint(value: str) -> str:
+def fingerprint(value: str) -> str:
     """Stable, non-reversible short fingerprint of a cloud id's MAC key.
 
     Both sides of a match fingerprint identically, so a match stays
@@ -739,7 +739,7 @@ def to_diagnostics(
         },
         "entries": [
             {
-                "fingerprint": _fingerprint(e.cloud_id),
+                "fingerprint": fingerprint(e.cloud_id),
                 "cloud_name": e.cloud_name,
                 "online": e.online,
                 "match_kind": e.match_kind,

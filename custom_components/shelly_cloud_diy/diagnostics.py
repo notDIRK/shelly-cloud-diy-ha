@@ -16,9 +16,25 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
+from .const import (
+    CONF_CREATE_ALL_INITIALLY,
+    CONF_ENABLED_DEVICES,
+    CONF_LOCAL_GATEWAY_URL,
+    CONF_OFFLINE_AFTER,
+    CONF_POLL_INTERVAL,
+    CONF_RELAY_FAULT_DETECTION,
+    DOMAIN,
+    OFFLINE_AFTER_DEFAULT,
+    POLL_INTERVAL_DEFAULT,
+    RELAY_FAULT_DETECTION_DEFAULT,
+)
 from .coordinator import sleep_period_s
-from .services.fleet_map import compute_fleet, gather_cloud_devices, to_diagnostics
+from .services.fleet_map import (
+    fingerprint,
+    compute_fleet,
+    gather_cloud_devices,
+    to_diagnostics,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -27,6 +43,20 @@ if TYPE_CHECKING:
 
 TO_REDACT = {"cloud_name"}
 
+# Options this module reports explicitly. Anything else the entry carries is
+# listed BY NAME ONLY (never by value) so a future option cannot start
+# leaking through diagnostics just because nobody updated this file.
+KNOWN_OPTION_KEYS = frozenset(
+    {
+        CONF_POLL_INTERVAL,
+        CONF_OFFLINE_AFTER,
+        CONF_CREATE_ALL_INITIALLY,
+        CONF_ENABLED_DEVICES,
+        CONF_LOCAL_GATEWAY_URL,
+        CONF_RELAY_FAULT_DETECTION,
+    }
+)
+
 # Redacted from the per-device raw status: network identifiers and
 # human-set names that could carry another account's naming (shared
 # devices). The technical control fields (mode, white, gain, brightness,
@@ -34,15 +64,113 @@ TO_REDACT = {"cloud_name"}
 DEVICE_TO_REDACT = {"name", "cloud_name", "ssid", "sta_ip", "ip", "mac"}
 
 
+def _config_diagnostics(
+    entry: ConfigEntry, coordinator: Any | None
+) -> dict[str, Any]:
+    """Return what the integration is actually configured to do.
+
+    Exists because the fleet map answers "what is out there" but not "why
+    does this device have no entities" — and that question is settled by the
+    options, not by the cloud. Reading them used to mean opening
+    ``.storage/core.config_entries`` on the user's machine.
+
+    Two rules hold here, in this order:
+
+    * ``entry.data`` is never touched. The ``auth_key`` lives there, and a
+      diagnostics file is something users paste into public issues.
+    * device ids are fingerprinted with the same helper the fleet map uses,
+      so an enabled device can still be matched to its fleet-map row without
+      the raw MAC appearing anywhere.
+
+    Values are the *effective* ones wherever the coordinator can supply them
+    (its properties apply the defaults), because an option that is stored but
+    not in force explains nothing.
+    """
+    options = dict(entry.options)
+
+    raw_selection = options.get(CONF_ENABLED_DEVICES)
+    selection = (
+        [d for d in raw_selection if isinstance(d, str)]
+        if isinstance(raw_selection, list)
+        else None
+    )
+    create_all = (
+        coordinator.create_all_initially
+        if coordinator is not None
+        else bool(options.get(CONF_CREATE_ALL_INITIALLY, False))
+    )
+
+    devices: dict[str, Any]
+    if coordinator is None:
+        devices = {"note": "coordinator not ready"}
+    else:
+        snapshot = set(coordinator.devices)
+        enabled = {d for d in snapshot if coordinator.is_enabled(d)}
+        devices = {
+            "in_snapshot": len(snapshot),
+            "enabled": len(enabled),
+            # The support answer in one number: devices the cloud serves us
+            # that produce no entities because the options gate them out.
+            "gated_out": len(snapshot - enabled),
+        }
+
+    gateway = options.get(CONF_LOCAL_GATEWAY_URL)
+
+    return {
+        "options": {
+            "poll_interval_s": options.get(
+                CONF_POLL_INTERVAL, POLL_INTERVAL_DEFAULT
+            ),
+            "offline_after_s": (
+                coordinator.offline_after_s
+                if coordinator is not None
+                else options.get(CONF_OFFLINE_AFTER, OFFLINE_AFTER_DEFAULT) * 60
+            ),
+            "relay_fault_detection": (
+                coordinator.relay_fault_detection
+                if coordinator is not None
+                else bool(
+                    options.get(
+                        CONF_RELAY_FAULT_DETECTION, RELAY_FAULT_DETECTION_DEFAULT
+                    )
+                )
+            ),
+            "create_all_initially": create_all,
+            # A URL can carry an internal hostname, so only its presence is
+            # reported — that is all the answer "is the local gateway wired
+            # up?" needs.
+            "local_gateway_url_set": bool(
+                isinstance(gateway, str) and gateway.strip()
+            ),
+            "enabled_devices": {
+                "mode": "all" if create_all else "selection",
+                "selected": len(selection) if selection is not None else None,
+                "fingerprints": (
+                    sorted(fingerprint(d) for d in selection)
+                    if selection is not None and not create_all
+                    else None
+                ),
+            },
+            "other_option_keys": sorted(set(options) - KNOWN_OPTION_KEYS),
+        },
+        "devices": devices,
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if coordinator is None or not getattr(
+    ready = coordinator is not None and getattr(
         coordinator, "last_update_success", False
-    ):
-        return {"fleet_map": None, "note": "coordinator not ready"}
+    )
+    # The configuration is reported either way: an entry that never came up
+    # is exactly when knowing what it was told to do matters most.
+    config = _config_diagnostics(entry, coordinator if ready else None)
+
+    if not ready:
+        return {"fleet_map": None, "note": "coordinator not ready", **config}
 
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
@@ -53,7 +181,8 @@ async def async_get_config_entry_diagnostics(
     return {
         "fleet_map": async_redact_data(
             to_diagnostics(fleet, suggestions, resilience), TO_REDACT
-        )
+        ),
+        **config,
     }
 
 
