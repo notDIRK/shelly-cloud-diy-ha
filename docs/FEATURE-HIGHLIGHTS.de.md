@@ -48,6 +48,9 @@ BLU-Familie hinter einem Gateway). Gebaut auf einem klaren Prinzip:
 
 ## Phase 1 — Fleet-Map: Cloud und lokale Shellys verbinden  🔄 als Nächstes
 
+> Die Entwurfsdokumente zu Phase 1–3, im Wortlaut vom Juni:
+> [`planning/device-swap/`](planning/device-swap/README.md).
+
 **Slogan:** *Eine Ansicht für jeden Shelly — lokal, Cloud oder beides — mit
 Namen, die sich selbst pflegen, und einer ehrlichen Antwort auf „funktioniert das
 auch offline?"*

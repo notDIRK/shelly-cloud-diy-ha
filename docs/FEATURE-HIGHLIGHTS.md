@@ -48,6 +48,9 @@ family behind a gateway). But it is built on one firm principle:
 
 ## Phase 1 — Fleet‑Map: bridge the cloud and your local Shellys  🔄 next
 
+> Design documents for phases 1–3, kept as written in June:
+> [`planning/device-swap/`](planning/device-swap/README.md).
+
 **Tagline:** *One view of every Shelly — local, cloud, or both — with names that
 look after themselves and an honest answer to "will it still work offline?"*
 
