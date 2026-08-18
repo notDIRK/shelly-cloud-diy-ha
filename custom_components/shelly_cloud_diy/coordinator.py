@@ -152,6 +152,37 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def still_deep_sleeping(status: dict[str, Any], period: int) -> bool:
+    """Return whether ``status`` was pushed by a device that just woke up.
+
+    Needed only to tell two externally powered devices apart (#32): one that
+    stopped sleeping when it got permanent power, and one that kept its
+    wakeup schedule regardless. Only the first makes the transport flag
+    meaningful again.
+
+    Two independent signals, either of which is enough:
+
+    * the cloud's own ``_sleeping`` marker, and
+    * a boot out of deep sleep whose uptime has not yet outlived one wakeup
+      period — a device that stays awake pushes later snapshots, so its
+      uptime grows past the period and the evidence expires by itself.
+    """
+    if status.get("_sleeping") is True:
+        return True
+
+    sys_block = status.get("sys")
+    if not isinstance(sys_block, dict):
+        return False
+    reason = sys_block.get("wakeup_reason")
+    if not isinstance(reason, dict) or reason.get("boot") != "deepsleep_wake":
+        return False
+
+    uptime = sys_block.get("uptime")
+    if not isinstance(uptime, (int, float)) or isinstance(uptime, bool):
+        return False
+    return 0 <= uptime < period
+
+
 def sleep_period_s(status: dict[str, Any]) -> int:
     """Return the deep-sleep period of ``status`` in seconds, 0 if not sleeping.
 
@@ -160,24 +191,31 @@ def sleep_period_s(status: dict[str, Any]) -> int:
     publish ``sys.wakeup_period``; devices that only carry the cloud's
     ``_sleeping`` marker fall back to :data:`SLEEP_ASSUMED_PERIOD_S`.
 
-    A device running off external power is never treated as sleeping, even
-    when it still carries a ``wakeup_period`` from its battery days — it is
-    permanently connected, so the transport flag is meaningful again and an
-    offline reading means the device really is gone. (#13)
+    External power alone does not end deep sleep. An H&T Gen3 running off
+    USB-C with the batteries removed keeps waking on its old schedule, so its
+    cached snapshot still shows ``cloud.connected: false`` for a live device
+    and the entities flapped between available and unavailable (#32). The
+    device is therefore only demoted to "mains, transport flag is honest
+    again" (#13) when nothing in the snapshot says it is still sleeping.
     """
     if not isinstance(status, dict):
+        return 0
+
+    sys_block = status.get("sys")
+    raw = sys_block.get("wakeup_period") if isinstance(sys_block, dict) else None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        period = int(raw)
+    elif status.get("_sleeping") is True:
+        period = SLEEP_ASSUMED_PERIOD_S
+    else:
         return 0
 
     power = status.get("devicepower:0")
     external = power.get("external") if isinstance(power, dict) else None
     if isinstance(external, dict) and external.get("present") is True:
-        return 0
+        return period if still_deep_sleeping(status, period) else 0
 
-    sys_block = status.get("sys")
-    period = sys_block.get("wakeup_period") if isinstance(sys_block, dict) else None
-    if isinstance(period, (int, float)) and not isinstance(period, bool) and period > 0:
-        return int(period)
-    return SLEEP_ASSUMED_PERIOD_S if status.get("_sleeping") is True else 0
+    return period
 
 
 def sleep_window_s(status: dict[str, Any]) -> float:
