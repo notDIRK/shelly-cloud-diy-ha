@@ -19,7 +19,7 @@
       },
       "devices": {
         "title": "Geräte auswählen",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Wähle oben eine Schnell-Aktion oder passe die Liste darunter direkt an. Bleiben am Ende alle Geräte angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert. Offline-Geräte sind mit ⚠ markiert.",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Wähle oben eine Schnell-Aktion oder passe die Liste darunter direkt an. Bleiben am Ende alle Geräte angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert. Offline-Geräte sind mit ⚠ markiert. Aktuell angehakt: {selected}.",
         "data": {
           "bulk_action": "Schnell-Aktion",
           "enabled_devices": "Geräte (einzeln an-/abwählbar)"
@@ -34,6 +34,18 @@
         "description": "Die Shelly Cloud hat den gespeicherten Authorization cloud key abgelehnt. Füge einen frischen Key aus der Shelly-App ein (Benutzereinstellungen → Authorization cloud key), um den Zugriff wiederherzustellen.",
         "data": {
           "auth_key": "Authorization cloud key"
+        }
+      },
+      "devices_bulk": {
+        "title": "Auswahl aktualisiert — noch nicht gespeichert",
+        "description": "{selected} von {total} Gerät(en) sind jetzt angehakt. **Gespeichert ist noch nichts** — mit Absenden speicherst du diese Auswahl, oder du passt die Haken vorher noch an.",
+        "data": {
+          "bulk_action": "Schnell-Aktion",
+          "enabled_devices": "Geräte (einzeln an-/abwählbar)"
+        },
+        "data_description": {
+          "bulk_action": "\"Alle anhaken\" oder \"Alle abwählen\" überschreibt beim Speichern die manuelle Liste unten. Mit \"Manuelle Auswahl\" zählt die Liste.",
+          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt."
         }
       }
     },
@@ -70,7 +82,19 @@
       },
       "devices": {
         "title": "Geräte-Auswahl ändern",
-        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Oben eine Schnell-Aktion wählen oder die Liste darunter direkt anpassen. Bleiben am Ende alle Geräte angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert.",
+        "description": "Das Shelly-Cloud-Konto enthält {total} Gerät(e). Oben eine Schnell-Aktion wählen oder die Liste darunter direkt anpassen. Bleiben am Ende alle Geräte angehakt, werden künftig neu hinzukommende Geräte automatisch aktiviert. Aktuell angehakt: {selected}.",
+        "data": {
+          "bulk_action": "Schnell-Aktion",
+          "enabled_devices": "Geräte (einzeln an-/abwählbar)"
+        },
+        "data_description": {
+          "bulk_action": "\"Alle anhaken\" oder \"Alle abwählen\" überschreibt beim Speichern die manuelle Liste unten. Mit \"Manuelle Auswahl\" zählt die Liste.",
+          "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt."
+        }
+      },
+      "devices_bulk": {
+        "title": "Auswahl aktualisiert — noch nicht gespeichert",
+        "description": "{selected} von {total} Gerät(en) sind jetzt angehakt. **Gespeichert ist noch nichts** — mit Absenden speicherst du diese Auswahl, oder du passt die Haken vorher noch an.",
         "data": {
           "bulk_action": "Schnell-Aktion",
           "enabled_devices": "Geräte (einzeln an-/abwählbar)"
