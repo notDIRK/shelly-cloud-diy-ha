@@ -15,8 +15,16 @@ rename / version-bump commits.
 
 Quick scan (run from repo root):
 
+⚠ Use `origin/main..HEAD`, **never `origin/HEAD..HEAD`**. `origin/HEAD` is unset
+in this clone, so `git diff origin/HEAD..HEAD` aborts with `bad revision`; the
+`grep` behind the pipe then reads an empty stream, matches nothing and prints
+`diff clean` — **without having checked anything**. Always print the diff size
+first so a scan that saw zero lines is visible.
+
 ```bash
-git diff origin/HEAD..HEAD -- '**' | grep -E -i \
+git diff origin/main..HEAD -- '**' | wc -l   # 0 = nothing was scanned, investigate
+
+git diff origin/main..HEAD -- '**' | grep -E -i \
   'auth_key|integrator_token|access_token|bearer[[:space:]]+[A-Za-z0-9]|ghp_|gho_|sk-[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]+\.eyJ' \
   && echo "SECRET SUSPECTED — ABORT" || echo "diff clean"
 
