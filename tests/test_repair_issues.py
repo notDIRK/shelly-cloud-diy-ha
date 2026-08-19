@@ -35,6 +35,7 @@ from custom_components.shelly_cloud_diy.repair_issues import (
     HISTORY_IMPORT_MIN_FAILURES,
     HISTORY_IMPORT_RETRY_S,
     MISSING_DEVICE_MAX_LISTED,
+    MISSING_DEVICE_MAX_NAME_LEN,
     MISSING_DEVICE_MIN_SECONDS,
     MISSING_DEVICE_MIN_STREAK,
     RATE_LIMIT_MIN_SECONDS,
@@ -287,6 +288,40 @@ def test_format_clamps_a_single_long_name() -> None:
     text = format_device_list({"abc123"}, {"abc123": "x" * 100})
     assert text.endswith("(abc123)")
     assert len(text) < 100
+
+
+def test_format_clamps_on_a_word_boundary() -> None:
+    """A cut name must still read like a name.
+
+    The live relay-fault card rendered Dirk's switch as
+    "KG-SY-PSW-Licht-Buero-Di…", which reads as a rendering fault rather
+    than a shortened label.
+    """
+    text = format_device_list(
+        {"abc123"}, {"abc123": "KG-SY-PSW-Licht-Buero-Dirk"}
+    )
+    assert text == "KG-SY-PSW-Licht-Buero… (abc123)"
+
+
+def test_format_clamp_falls_back_to_a_hard_cut() -> None:
+    """No separator late enough in the budget means the hard cut stands."""
+    text = format_device_list({"abc123"}, {"abc123": "Wohnzimmer" + "x" * 40})
+    assert text.startswith("Wohnzimmerxxx")
+    assert text.endswith("… (abc123)")
+
+
+def test_format_clamp_never_exceeds_the_bound() -> None:
+    """Whichever branch runs, the clamp still owes the caller its bound."""
+    for name in (
+        "KG-SY-PSW-Licht-Buero-Dirk",
+        "Wohnzimmer Deckenlampe hinten links",
+        "a" * 100,
+        "-" * 30,
+        "kurz-" + "y" * 30,
+    ):
+        text = format_device_list({"abc123"}, {"abc123": name})
+        rendered = text.split(" (abc123)")[0]
+        assert len(rendered) <= MISSING_DEVICE_MAX_NAME_LEN, name
 
 
 def test_format_is_deterministic() -> None:

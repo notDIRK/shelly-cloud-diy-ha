@@ -74,6 +74,12 @@ MISSING_DEVICE_MAX_LISTED = 5
 # exists to enforce.
 MISSING_DEVICE_MAX_NAME_LEN = 24
 
+# When the clamp has to cut, it prefers the last word boundary at or after
+# this offset, so "KG-SY-PSW-Licht-Buero-Dirk" ends on "…-Buero…" instead of
+# mid-word "…-Di…". Below the floor the boundary is too early to be worth the
+# characters it costs, and the hard cut is used instead.
+MISSING_DEVICE_NAME_MIN_KEEP = 16
+
 # Two unproductive syncs. Because the daily interval is 24 h and this counter
 # is instance state on a service that async_setup_entry rebuilds on every
 # reload, a naive "wait for the next daily run" would mean the repair never
@@ -180,10 +186,22 @@ def history_import_verdict(
 
 
 def _clamp_name(name: str) -> str:
-    """Trim a device name to keep the rendered card bounded."""
+    """Trim a device name to keep the rendered card bounded.
+
+    The cut lands on a word boundary where one sits late enough in the
+    budget to be worth it, because the truncated half of a name is what the
+    reader uses to recognise their device: a live card read
+    "KG-SY-PSW-Licht-Buero-Di…", which looks like a rendering bug rather
+    than a shortened name. Names without a usable separator still get the
+    hard cut — the bound, not the prettiness, is what this function owes.
+    """
     if len(name) <= MISSING_DEVICE_MAX_NAME_LEN:
         return name
-    return name[: MISSING_DEVICE_MAX_NAME_LEN - 1].rstrip() + "…"
+    head = name[: MISSING_DEVICE_MAX_NAME_LEN - 1]
+    cut = max(head.rfind(" "), head.rfind("-"), head.rfind("_"))
+    if cut >= MISSING_DEVICE_NAME_MIN_KEEP:
+        head = head[:cut]
+    return head.rstrip(" -_") + "…"
 
 
 def format_device_list(missing: set[str], names: dict[str, str]) -> str:
