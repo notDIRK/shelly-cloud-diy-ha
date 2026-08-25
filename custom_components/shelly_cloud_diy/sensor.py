@@ -124,14 +124,22 @@ def _create_block_sensors(
                         coordinator, device_id, desc, idx, "emeters", attr
                     ))
 
-        if "total" in emeter:
-            desc = BLOCK_SENSORS.get(("emeter", "energy"))
-            if desc:
+        # Cumulative counters. Gen1 energy meters report consumption as
+        # ``total`` and grid feed-in as ``total_returned`` (both watt-hours);
+        # a description for the latter existed from the start but was never
+        # instantiated, so PV owners on a Shelly 3EM got the consumption half
+        # only (#38).
+        for attr, key in [
+            ("total", ("emeter", "energy")),
+            ("total_returned", ("emeter", "energyReturned")),
+        ]:
+            if attr in emeter and key in BLOCK_SENSORS:
+                desc = BLOCK_SENSORS[key]
                 uid = f"{device_id}_{desc.key}_{idx}"
                 if uid not in created:
                     created.add(uid)
                     entities.append(BlockSensor(
-                        coordinator, device_id, desc, idx, "emeters", "total"
+                        coordinator, device_id, desc, idx, "emeters", attr
                     ))
 
     # Meters
