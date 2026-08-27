@@ -372,6 +372,20 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, "state"
                         ))
 
+    # Flood alarms (for example Shelly Flood Gen4 / S4SN-0071Z)
+    for key, payload in status.items():
+        if match := re.fullmatch(r"flood:(\d+)", key):
+            idx = int(match.group(1))
+            if isinstance(payload, dict) and "alarm" in payload:
+                desc = RPC_BINARY_SENSORS.get("flood")
+                if desc:
+                    uid = f"{device_id}_{key}_alarm"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(RpcBinarySensor(
+                            coordinator, device_id, desc, idx, key, "alarm"
+                        ))
+
     # Cloud
     if "connected" in status.get("cloud", {}):
         desc = RPC_BINARY_SENSORS.get("cloud")

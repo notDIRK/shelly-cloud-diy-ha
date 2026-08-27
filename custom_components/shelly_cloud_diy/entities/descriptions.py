@@ -985,6 +985,12 @@ RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
         name="Input",
         device_class=BinarySensorDeviceClass.POWER,
     ),
+    "flood": RpcBinarySensorDescription(
+        key="flood",
+        sub_key="alarm",
+        name="Flood",
+        device_class=BinarySensorDeviceClass.MOISTURE,
+    ),
     # Disabled by default, matching HA core's native Shelly integration. On a
     # deep-sleep device this flag is a boot-timing artifact rather than a state:
     # the cached snapshot is captured seconds after wake, before the cloud
