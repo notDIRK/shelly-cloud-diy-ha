@@ -87,3 +87,4 @@ secrets.yaml
 # Local-only scratch: ad-hoc pure-function tests, MCP browser artifacts
 scratchpad/
 .playwright-mcp/
+/tests
