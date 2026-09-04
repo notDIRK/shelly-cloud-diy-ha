@@ -194,6 +194,27 @@ def _create_block_sensors(
                     coordinator, device_id, desc, 0, key, "tC"
                 ))
 
+    # Wi-Fi signal strength. The description has existed since the first
+    # release but no builder ever looked it up, so the reading never became an
+    # entity — the same dead-description gap as the returned energy in #38 and
+    # the flood/smoke flags in #41/#42.
+    #
+    # ⚠ Shape taken from the vendor Gen1 API documentation
+    # (https://shelly-api-docs.shelly.cloud/gen1/, /status), NOT measured: no
+    # Gen1 device appears in any payload recorded from a real account. The
+    # documented object is
+    # ``"wifi_sta": {"connected": true, "ssid": …, "ip": …, "rssi": -54}``.
+    wifi_sta = status.get("wifi_sta")
+    if isinstance(wifi_sta, dict) and wifi_sta.get("rssi") is not None:
+        desc = BLOCK_SENSORS.get(("wifi_sta", "rssi"))
+        if desc:
+            uid = f"{device_id}_wifi_sta_rssi"
+            if uid not in created:
+                created.add(uid)
+                entities.append(BlockSensor(
+                    coordinator, device_id, desc, 0, "wifi_sta", "rssi"
+                ))
+
     return entities
 
 
@@ -498,6 +519,31 @@ def _create_rpc_sensors(
                     entities.append(RpcVirtualSensor(
                         coordinator, device_id, comp_type, idx, key
                     ))
+
+    # Wi-Fi signal strength — ``wifi.rssi``. A top-level, non-indexed
+    # component, so it is read directly rather than through a
+    # ``<type>:<id>`` scan, the same way the Cloud binary sensor reads
+    # ``cloud.connected``.
+    #
+    # Present on 35 of 35 Gen2+ devices in the recorded account snapshot, and
+    # the description has existed since the first release — but no builder
+    # ever looked it up, so the reading never became an entity. Same
+    # dead-description gap as the returned energy in #38 and the flood alarms
+    # in #41/#42.
+    #
+    # Gated on a non-null value, not on the key: a device running without
+    # Wi-Fi (a Pro on Ethernet) still carries the component, and an entity
+    # that can only ever read "unknown" is worse than no entity.
+    wifi = status.get("wifi")
+    if isinstance(wifi, dict) and wifi.get("rssi") is not None:
+        desc = RPC_SENSORS.get("rssi")
+        if desc:
+            uid = f"{device_id}_wifi_rssi"
+            if uid not in created:
+                created.add(uid)
+                entities.append(RpcSensor(
+                    coordinator, device_id, desc, 0, "wifi", "rssi"
+                ))
 
     return entities
 
@@ -843,6 +889,11 @@ class BleBatteryPercentSensor(ShellyBaseEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # Declared even though the reader below hard-codes it: this is the only
+    # way an outside caller can ask an entity which status key it consumes,
+    # which is how the diagnostics coverage report tells a surfaced part of
+    # the payload from an ignored one.
+    _status_key = "devicepower:0"
 
     def __init__(
         self,
@@ -873,6 +924,9 @@ class BleBatteryVoltageSensor(ShellyBaseEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_suggested_display_precision = 2
+    # See BleBatteryPercentSensor: declared so the coverage report can see
+    # that this entity is what makes ``devicepower:0`` a surfaced key.
+    _status_key = "devicepower:0"
 
     def __init__(
         self,

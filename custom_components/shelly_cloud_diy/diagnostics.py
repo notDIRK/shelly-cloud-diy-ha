@@ -27,6 +27,8 @@ from .const import (
     OFFLINE_AFTER_DEFAULT,
     POLL_INTERVAL_DEFAULT,
     RELAY_FAULT_DETECTION_DEFAULT,
+    device_gen,
+    is_gen2_status,
 )
 from .coordinator import sleep_period_s
 from .services.fleet_map import (
@@ -62,6 +64,25 @@ KNOWN_OPTION_KEYS = frozenset(
 # devices). The technical control fields (mode, white, gain, brightness,
 # rgb, output, …) are deliberately kept — they are the point of the dump.
 DEVICE_TO_REDACT = {"name", "cloud_name", "ssid", "sta_ip", "ip", "mac"}
+
+# Top-level status keys the coverage report never counts as a gap. Each was
+# judged on its own; the list is short on purpose, because every key excluded
+# here is a gap that can no longer be seen.
+#
+#   _updated, _dev_info   written by our own coordinator, not by the device
+#   serial, ts            the payload's revision counter and its timestamp
+#   id, code              the device's own component id and model code
+#
+# Deliberately NOT excluded, although both are tempting:
+#
+#   sys        carries uptime, RAM and filesystem headroom and the pending
+#              firmware version. None of it is an entity today, and that is
+#              a real gap the report should keep saying out loud.
+#   reporter   the bridging gateway's RSSI — on a BLU device it is the only
+#              signal figure there is, and it has no description at all.
+STRUCTURAL_STATUS_KEYS = frozenset(
+    {"_updated", "_dev_info", "serial", "ts", "id", "code"}
+)
 
 
 def _config_diagnostics(
@@ -237,8 +258,130 @@ async def async_get_device_diagnostics(
         "redacted_keys": sorted(DEVICE_TO_REDACT),
         "sleep": _sleep_diagnostics(record),
         "reporting": _reporting_diagnostics(coordinator, device_id),
+        "coverage": _coverage_diagnostics(
+            coordinator, device_id, record.get("status") or {}
+        ),
         "record": async_redact_data(record, DEVICE_TO_REDACT),
     }
+
+
+def _entity_source_keys(entity: Any, status: dict[str, Any]) -> set[str]:
+    """Return the top-level status keys one entity reads.
+
+    Every entity stores the key it was built from, but under a different
+    attribute name per class — ``_component_key`` on the RPC entities,
+    ``_status_key`` on the Block and BLE ones — and the Gen1 entities whose
+    reading is a bare top-level flag (``motion``, ``flood``) keep it in
+    ``_attr_key`` with no container at all. Reading all three and keeping
+    only what is actually a key of this payload covers every shape without
+    the report having to know the class hierarchy.
+    """
+    keys: set[str] = set()
+    for attribute in ("_component_key", "_status_key", "_attr_key"):
+        value = getattr(entity, attribute, None)
+        if isinstance(value, str) and value in status:
+            keys.add(value)
+    return keys
+
+
+def _coverage_diagnostics(
+    coordinator: Any, device_id: str, status: dict[str, Any]
+) -> dict[str, Any]:
+    """Report which parts of this device's payload produce no entity.
+
+    Derived from the builders, not from the description tables. That
+    distinction is the whole point: all four dead-description bugs (#38,
+    #41, #42 and the Wi-Fi RSSI) were entries that existed in a table while
+    no builder ever looked them up, so a table-derived report would have
+    called every one of them "covered" and found nothing.
+
+    So the real creation functions run here, against a throwaway ``created``
+    set, and the answer is assembled from the entities they actually return.
+    The two device-wide binary sensors (Reporting, Relay fault) are left out
+    because they derive from no single status key and would only blur the
+    picture.
+
+    Key NAMES only, never values — this block sits next to a redacted dump
+    and must not become a way around it.
+
+    Never raises. A user downloads this from the device page to attach to a
+    bug report; a coverage report that cannot be produced is worth far less
+    than the raw status next to it, so any failure degrades to an ``error``
+    string and the rest of the file survives.
+    """
+    try:
+        if not status:
+            return {"note": "no status in the current snapshot"}
+
+        # Imported here rather than at module scope: the platforms pull in
+        # the whole entity stack, and a diagnostics module has no business
+        # making that a hard import for every start.
+        from . import binary_sensor as binary_sensor_platform
+        from . import sensor as sensor_platform
+
+        # The same dispatch the two platforms make, so the report is judged
+        # against the builders that would really have run for this device.
+        # Labels are fixed here rather than read off the function, so a
+        # failure names the builder that was meant to run.
+        gen = device_gen(status)
+        if gen == "GBLE":
+            builders = (
+                ("sensor.ble", sensor_platform._create_ble_sensors),
+                (
+                    "binary_sensor.ble",
+                    binary_sensor_platform._create_ble_binary_sensors,
+                ),
+            )
+        elif is_gen2_status(status):
+            builders = (
+                ("sensor.rpc", sensor_platform._create_rpc_sensors),
+                ("binary_sensor.rpc", binary_sensor_platform._create_rpc_sensors),
+            )
+        else:
+            builders = (
+                ("sensor.block", sensor_platform._create_block_sensors),
+                ("binary_sensor.block", binary_sensor_platform._create_block_sensors),
+            )
+
+        covered: set[str] = set()
+        entity_count = 0
+        builder_errors: list[str] = []
+
+        for label, build in builders:
+            # A fresh throwaway set per builder, because that is what
+            # production does: the sensor and binary-sensor platforms each
+            # keep their own. Sharing one here could let a unique-id collision
+            # between the two swallow an entity and invent a gap.
+            try:
+                entities = build(device_id, status, set(), coordinator)
+            except Exception as err:  # noqa: BLE001 - see docstring
+                builder_errors.append(f"{label}: {type(err).__name__}")
+                continue
+            entity_count += len(entities)
+            for entity in entities:
+                covered |= _entity_source_keys(entity, status)
+
+        uncovered = sorted(
+            key
+            for key in status
+            if key not in covered and key not in STRUCTURAL_STATUS_KEYS
+        )
+
+        report: dict[str, Any] = {
+            "generation": gen,
+            "entities_built": entity_count,
+            "covered_keys": sorted(covered),
+            "uncovered_keys": uncovered,
+            "uncovered_count": len(uncovered),
+            "ignored_keys": sorted(
+                key for key in status if key in STRUCTURAL_STATUS_KEYS
+            ),
+        }
+        if builder_errors:
+            report["builder_errors"] = builder_errors
+        return report
+    except Exception as err:  # noqa: BLE001 - see docstring
+        return {"error": f"{type(err).__name__}: {err}"}
 
 
 def _reporting_diagnostics(
