@@ -9,6 +9,35 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.11.0 — 2026-09-04
+
+- **New: a warning when a device is running hot, weak or short of memory.**
+  Every poll already returned each device's Wi-Fi signal, its component
+  temperatures, its free memory and storage, whether a restart was pending and
+  whether any component was reporting its own error — and none of it was ever
+  interpreted. One repair card now does, for the whole account rather than one
+  per device, at no extra request to Shelly Cloud. Thresholds were measured
+  against a real 64-device account rather than chosen in the abstract: signal
+  at -70/-85 dBm, component temperature at 70/85 °C, free RAM and storage at
+  20 %/10 %. Only a component's own heat is judged, never an external Add-on
+  probe — a sensor in a boiler flow pipe is hot by design. Bluetooth devices
+  are judged on the one figure they have, the signal their gateway reports;
+  Gen1 devices are not judged at all, because no Gen1 payload exists to verify
+  a threshold against. Pending firmware updates count as a finding only if you
+  switch that on. The whole check has an off switch.
+- **New: Wi-Fi signal sensors.** The descriptions had existed since the first
+  release and no code ever looked them up, so signal strength was present in
+  the data on every Gen2+ device and invisible in Home Assistant. Both the
+  Gen2+ and the Gen1 sensor are now created. Device diagnostics also gained a
+  coverage section naming the parts of a device's payload that still produce
+  no entity, so the next gap of this kind shows up in a bug report instead of
+  waiting for someone to notice.
+- Gen1 flood and smoke sensors (Shelly Flood `SHWT-1`, Shelly Smoke `SHSM-01`)
+  now create their alarm entity. As above, the description existed from the
+  first release but was never wired to a status key, so these devices arrived
+  with their temperature and battery readings and without the one reading they
+  exist for (#42).
+
 ## v0.10.0 — 2026-09-04
 
 - **New: wet/dry for Gen2+ flood sensors.** A Shelly Flood S Gen4 reports its
