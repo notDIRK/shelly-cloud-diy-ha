@@ -405,6 +405,10 @@ def _inert_repair_issues(monkeypatch):
         coordinator_mod, "async_manage_relay_fault_issue",
         lambda hass, entry, *, active, faults, names: None,
     )
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_device_health_issue",
+        lambda hass, entry, *, active, findings, names: None,
+    )
 
 
 def _live_coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
@@ -434,6 +438,9 @@ def _live_coordinator(devices_status: dict[str, Any]) -> ShellyCloudCoordinator:
     coord._relay_fault_since = {}
     coord._relay_healthy_since = {}
     coord.relay_faults = set()
+    coord._health_streak = {}
+    coord._health_since = {}
+    coord.device_health = {}
     return coord
 
 

@@ -16,14 +16,14 @@ non-reserved filename sidesteps the platform contract entirely at zero
 cost; if a real fix flow is ever wanted, add a proper ``repairs.py``
 exposing ``async_create_fix_flow`` at that point.
 
-All four issues are informational and non-persistent. None of them can
+All five issues are informational and non-persistent. None of them can
 be resolved by an in-process button press — a sustained rate limit, a
 device that vanished from the Shelly account, an unreachable local
-gateway and a welded relay contact are all resolved outside Home
-Assistant — so a confirm-only Fix button would lie to the user and the
-card would simply reappear on the next poll. Every condition is
-re-derived from live polling (or the next sync cycle) after a restart,
-so nothing needs to be persisted.
+gateway, a welded relay contact and a device running hot or short of
+memory are all resolved outside Home Assistant — so a confirm-only Fix
+button would lie to the user and the card would simply reappear on the
+next poll. Every condition is re-derived from live polling (or the next
+sync cycle) after a restart, so nothing needs to be persisted.
 
 Issue ids are suffixed with the config entry id: the issue registry keys
 on ``(domain, issue_id)`` alone, so a second Shelly account would
@@ -37,10 +37,13 @@ from homeassistant.core import callback
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN, ORPHAN_FLOOR_ABS, ORPHAN_FLOOR_FRAC
+from .device_health import summarise_findings
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
+
+    from .device_health import HealthFinding
 
 
 # Both gates must hold. At the 5 s default poll interval the TIME gate is the
@@ -101,6 +104,7 @@ ISSUE_RATE_LIMITED = "rate_limited"
 ISSUE_MISSING_DEVICES = "missing_devices"
 ISSUE_HISTORY_IMPORT_FAILED = "history_import_failed"
 ISSUE_RELAY_FAULT = "relay_fault"
+ISSUE_DEVICE_HEALTH = "device_health"
 
 
 # ── Pure verdict helpers (no hass — unit-testable) ────────────────────
@@ -351,6 +355,48 @@ def async_manage_relay_fault_issue(
 
 
 @callback
+def async_manage_device_health_issue(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    active: bool,
+    findings: dict[str, tuple[HealthFinding, ...]],
+    names: dict[str, str],
+) -> None:
+    """Create or clear the aggregated device-health issue for ``entry``.
+
+    **One card for the whole account, never one per device.** The account
+    this was measured against would have produced 24 firmware cards alone;
+    a repair panel with two dozen rows from a single integration is not a
+    warning, it is a wall the user scrolls past.
+
+    Upserts for the same reason as the missing-devices and relay cards: a
+    second device going hot must not silently un-ignore the first one,
+    which a delete-then-create would do.
+    """
+    iid = issue_id(ISSUE_DEVICE_HEALTH, entry.entry_id)
+    if active:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            iid,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_DEVICE_HEALTH,
+            translation_placeholders={
+                "entry_title": entry.title,
+                "count": str(len(findings)),
+                "summary": summarise_findings(findings),
+                "devices": format_device_list(set(findings), names),
+            },
+        )
+    else:
+        # A no-op when the id was never raised, so no existence probe.
+        ir.async_delete_issue(hass, DOMAIN, iid)
+
+
+@callback
 def async_manage_history_import_issue(
     hass: HomeAssistant, entry: ConfigEntry, *, active: bool
 ) -> None:
@@ -382,6 +428,7 @@ def async_clear_entry_issues(
         ISSUE_MISSING_DEVICES,
         ISSUE_HISTORY_IMPORT_FAILED,
         ISSUE_RELAY_FAULT,
+        ISSUE_DEVICE_HEALTH,
     ):
         # ``async_delete_issue`` on a non-existent id is an explicit no-op.
         ir.async_delete_issue(hass, DOMAIN, issue_id(kind, entry.entry_id))

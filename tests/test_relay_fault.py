@@ -66,6 +66,10 @@ def _inert_repair_issues(monkeypatch):
         coordinator_mod, "async_manage_missing_devices_issue",
         lambda hass, entry, *, active, missing, names: None,
     )
+    monkeypatch.setattr(
+        coordinator_mod, "async_manage_device_health_issue",
+        lambda hass, entry, *, active, findings, names: None,
+    )
     # Every device here is enabled (``create_all_initially``) so that the
     # relay evaluation sees it at all, which also makes the poll dispatch
     # SIGNAL_NEW_DEVICE into a Home Assistant that does not exist.
@@ -224,6 +228,9 @@ def _coordinator(devices_status: dict[str, Any], **options: Any) -> ShellyCloudC
     coord._relay_fault_since = {}
     coord._relay_healthy_since = {}
     coord.relay_faults = set()
+    coord._health_streak = {}
+    coord._health_since = {}
+    coord.device_health = {}
     # The real one reaches into the HA device registry for a fallback label.
     # Its behaviour belongs to the missing-devices card and is covered there.
     coord._display_names = lambda ids: {

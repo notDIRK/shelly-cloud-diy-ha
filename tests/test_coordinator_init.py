@@ -48,6 +48,9 @@ REQUIRED = {
     "_relay_fault_since",
     "_relay_healthy_since",
     "relay_faults",
+    "_health_streak",
+    "_health_since",
+    "device_health",
 }
 
 

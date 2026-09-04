@@ -45,12 +45,16 @@ from .api.cloud_control import (
 from .const import (
     CONF_AUTH_KEY,
     CONF_CREATE_ALL_INITIALLY,
+    CONF_DEVICE_HEALTH_DETECTION,
+    CONF_DEVICE_HEALTH_FIRMWARE,
     CONF_ENABLED_DEVICES,
     CONF_LOCAL_GATEWAY_URL,
     CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
     CONF_RELAY_FAULT_DETECTION,
     CONF_SERVER_URI,
+    DEVICE_HEALTH_DETECTION_DEFAULT,
+    DEVICE_HEALTH_FIRMWARE_DEFAULT,
     DOMAIN,
     OFFLINE_AFTER_DEFAULT,
     OFFLINE_AFTER_MAX,
@@ -478,6 +482,18 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                             RELAY_FAULT_DETECTION_DEFAULT,
                         )
                     ),
+                    CONF_DEVICE_HEALTH_DETECTION: bool(
+                        user_input.get(
+                            CONF_DEVICE_HEALTH_DETECTION,
+                            DEVICE_HEALTH_DETECTION_DEFAULT,
+                        )
+                    ),
+                    CONF_DEVICE_HEALTH_FIRMWARE: bool(
+                        user_input.get(
+                            CONF_DEVICE_HEALTH_FIRMWARE,
+                            DEVICE_HEALTH_FIRMWARE_DEFAULT,
+                        )
+                    ),
                 }
 
                 # Fetch the current fleet + names so the device-selection
@@ -516,6 +532,16 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 CONF_RELAY_FAULT_DETECTION, RELAY_FAULT_DETECTION_DEFAULT
             )
         )
+        current_device_health = bool(
+            self.config_entry.options.get(
+                CONF_DEVICE_HEALTH_DETECTION, DEVICE_HEALTH_DETECTION_DEFAULT
+            )
+        )
+        current_health_firmware = bool(
+            self.config_entry.options.get(
+                CONF_DEVICE_HEALTH_FIRMWARE, DEVICE_HEALTH_FIRMWARE_DEFAULT
+            )
+        )
 
         schema = vol.Schema(
             {
@@ -529,6 +555,12 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 ),
                 vol.Required(
                     CONF_RELAY_FAULT_DETECTION, default=current_relay_fault
+                ): bool,
+                vol.Required(
+                    CONF_DEVICE_HEALTH_DETECTION, default=current_device_health
+                ): bool,
+                vol.Required(
+                    CONF_DEVICE_HEALTH_FIRMWARE, default=current_health_firmware
                 ): bool,
                 vol.Optional(
                     CONF_LOCAL_GATEWAY_URL, default=current_gw

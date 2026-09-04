@@ -71,13 +71,17 @@
           "poll_interval": "Poll interval (seconds)",
           "offline_after_minutes": "Report a device as offline after (minutes)",
           "relay_fault_detection": "Warn about a relay that no longer opens",
-          "local_gateway_url": "Local gateway URL (optional, for EM historical data)"
+          "local_gateway_url": "Local gateway URL (optional, for EM historical data)",
+          "device_health_detection": "Warn about devices in poor health",
+          "device_health_firmware": "Count a pending firmware update as a finding"
         },
         "data_description": {
           "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
           "offline_after_minutes": "2–1440 min, default 30. Each device's \"Reporting\" sensor turns off once the device has been silent this long. It is only a base value: a device that is naturally quieter earns a wider window on its own, and battery or BLE devices are handled separately. Lowering it therefore mainly speeds up detection on devices that report continuously, such as power-metering plugs.",
           "relay_fault_detection": "On by default. Watches every switching channel that meters its own output and warns when the relay reports itself as open while a real load is still flowing through it — a contact that has welded shut. Turn this off if a Shelly of yours sits in a two-way circuit, where the other switch can push current through the meter while the relay is genuinely open.",
-          "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data."
+          "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data.",
+          "device_health_detection": "On by default. Interprets data every poll already returns: Wi-Fi signal (warning at -70 dBm, error at -85 dBm), component temperature (70 °C / 85 °C), free memory and free storage (under 20 % / 10 %), a restart the device is still waiting for, and any component reporting its own error. It costs no extra requests. Bluetooth (BLU) devices are judged only on the signal their gateway reports for them, and Gen1 devices are not judged at all. Only a component's own temperature counts, never an external Add-on probe.",
+          "device_health_firmware": "Off by default. Adds \"a firmware update is available\" as a finding. On a typical account most devices have one pending, so switching this on tends to keep the card permanently lit — which is exactly what stops you noticing the findings that matter."
         }
       },
       "devices": {
@@ -204,6 +208,10 @@
     "relay_fault": {
       "title": "A Shelly relay is no longer switching off",
       "description": "{count} switching channel(s) on {entry_title} reported the relay as **open** while the device's own power meter reported a load still flowing through it, for at least two minutes.\n\nDevice(s): {devices}\n\nThis is what a welded relay contact looks like. The actuator still accepts commands and still reports *off*, but the load never actually switches off — so anything that relies on switching it off (an automation, a schedule, a motion sensor) silently stops working, and the load keeps consuming power.\n\nWhat to do:\n\n1. Check whether the load really is still running. The \"Relay fault\" diagnostic sensor on the device carries the measured wattage as an attribute.\n2. If it is, treat the actuator as defective and plan to replace it. A contact that welds once tends to do it again, and it cannot be switched off in software — only at the breaker.\n3. If the load is genuinely not running, the wiring may be feeding current past this relay (for example a two-way circuit). You can switch this warning off in the integration options.\n\nThe warning clears on its own once the channel has agreed with its own meter again for five minutes."
+    },
+    "device_health": {
+      "title": "Some Shelly devices are reporting problems",
+      "description": "{count} device(s) on {entry_title} crossed a health threshold and stayed across it for at least five minutes.\n\nFindings: {summary}\n\nDevice(s): {devices}\n\nEverything behind this comes from the status data the integration already polls — nothing extra was requested from Shelly Cloud. What the individual findings mean:\n\n- **Wi-Fi signal** — the device sits at -70 dBm or worse. The link still works, but it retransmits a lot and the device will drop off the cloud more often than the rest of your fleet. Move the device, move the access point, or add one closer.\n- **Temperature** — a component reports 70 °C or more. Usually a device packed into an insulated wall box, or one switching more current than its installation allows for. Only a component's own temperature is judged; an external probe on a Shelly Add-on is not, because a sensor in a boiler pipe is hot by design.\n- **Free memory / Free storage** — under 20 % is left. Scripts, schedules and over-the-air updates need that room; below 10 % the firmware starts refusing work and rebooting.\n- **Restart pending** — a configuration change has not been applied yet. Restart the device from the Shelly app.\n- **Component error** — the device itself is reporting this one, most often a wired add-on sensor that no longer answers.\n- **Firmware update** — information only, and off by default. It appears here only if you switched it on in the options.\n\nThis is one card for the whole account, never one per device. It clears by itself as soon as every device is back below its thresholds, and the whole check can be switched off under Settings → Devices & services → Shelly Cloud DIY → Configure."
     }
   }
 }

@@ -75,6 +75,30 @@ OFFLINE_AFTER_MAX = 24 * 60
 CONF_RELAY_FAULT_DETECTION = "relay_fault_detection"
 RELAY_FAULT_DETECTION_DEFAULT = True
 
+# ── Device health checks ("Doctor") ────────────────────────────────
+#
+# Threshold checks on fields the poll already returns: Wi-Fi signal,
+# device temperature, free RAM and filesystem, a pending restart and any
+# component reporting its own errors. No extra request, no extra
+# credential — see ``device_health.py`` for the thresholds and for why
+# Gen1 devices are not judged at all.
+#
+# On by default. Only a component's own heat is judged, never an external
+# add-on probe — a sensor in a boiler flow pipe is hot by design and the
+# payload cannot be told apart from an overheating device. The off switch
+# stays for the cases no payload can reveal, the way the relay detector
+# keeps one for two-way circuits.
+CONF_DEVICE_HEALTH_DETECTION = "device_health_detection"
+DEVICE_HEALTH_DETECTION_DEFAULT = True
+
+# Firmware findings are OFF by default, and that is a measurement, not a
+# preference: 24 of the 35 Gen2 devices on the account this was developed
+# against had an update pending. A card that is permanently lit on two
+# thirds of a fleet teaches the user to ignore the card — including the
+# time it is reporting a device cooking at 85 °C.
+CONF_DEVICE_HEALTH_FIRMWARE = "device_health_firmware"
+DEVICE_HEALTH_FIRMWARE_DEFAULT = False
+
 # ── Historical sync (unchanged from pre-pivot) ─────────────────────
 
 HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily

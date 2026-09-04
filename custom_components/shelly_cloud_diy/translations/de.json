@@ -71,13 +71,17 @@
           "poll_interval": "Abfrageintervall (Sekunden)",
           "offline_after_minutes": "Gerät als offline melden nach (Minuten)",
           "relay_fault_detection": "Vor einem Relais warnen, das nicht mehr öffnet",
-          "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)"
+          "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)",
+          "device_health_detection": "Vor Geräten in schlechtem Zustand warnen",
+          "device_health_firmware": "Ausstehendes Firmware-Update als Befund werten"
         },
         "data_description": {
           "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
           "offline_after_minutes": "2–1440 min, Standard 30. Der Sensor „Reporting“ eines Geräts fällt ab, sobald das Gerät so lange nichts mehr gemeldet hat. Das ist nur ein Basiswert: ein von Natur aus stilleres Gerät bekommt automatisch ein weiteres Fenster, Batterie- und BLE-Geräte werden getrennt behandelt. Ein kleinerer Wert beschleunigt die Erkennung deshalb vor allem bei Geräten, die durchgehend melden — etwa Zwischenstecker mit Leistungsmessung.",
           "relay_fault_detection": "Standardmäßig an. Beobachtet jeden Schaltkanal, der seinen eigenen Ausgang misst, und warnt, wenn das Relais sich als offen meldet, während weiterhin eine echte Last durch es fließt — ein verschweißter Kontakt. Abschalten, wenn ein Shelly in einer Wechselschaltung sitzt, wo der andere Schalter Strom durch die Messung schicken kann, obwohl das Relais wirklich offen ist.",
-          "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird."
+          "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird.",
+          "device_health_detection": "Standardmäßig an. Wertet aus, was jeder Abruf ohnehin liefert: WLAN-Signal (Warnung ab -70 dBm, Fehler ab -85 dBm), Komponententemperatur (70 °C / 85 °C), freier Speicher und freier Dateisystem-Platz (unter 20 % / 10 %), ein noch ausstehender Neustart sowie jede Komponente, die selbst einen Fehler meldet. Das kostet keine zusätzlichen Anfragen. Bluetooth-Geräte (BLU) werden nur nach dem Signal beurteilt, das ihr Gateway für sie meldet, Gen1-Geräte gar nicht. Gewertet wird nur die Eigenwärme einer Komponente, nie ein externer Fühler am Add-on.",
+          "device_health_firmware": "Standardmäßig aus. Ergänzt „Firmware-Update verfügbar“ als Befund. Auf einem typischen Konto hat die Mehrheit der Geräte eines offen — eingeschaltet leuchtet die Karte deshalb dauerhaft, und genau das sorgt dafür, dass die wichtigen Befunde untergehen."
         }
       },
       "devices": {
@@ -204,6 +208,10 @@
     "relay_fault": {
       "title": "Ein Shelly-Relais schaltet nicht mehr ab",
       "description": "{count} Schaltkanal/-kanäle von {entry_title} haben das Relais als **offen** gemeldet, während die geräteeigene Leistungsmessung weiterhin eine Last gemessen hat — mindestens zwei Minuten lang.\n\nGerät(e): {devices}\n\nSo sieht ein verschweißter Relaiskontakt aus. Der Aktor nimmt weiter Befehle an und meldet weiter *aus*, die Last schaltet aber nie wirklich ab — alles, was auf dem Abschalten beruht (eine Automation, ein Zeitplan, ein Bewegungsmelder), hört damit unbemerkt auf zu funktionieren, und die Last verbraucht weiter Strom.\n\nWas zu tun ist:\n\n1. Prüfen, ob die Last tatsächlich noch läuft. Der Diagnose-Sensor „Relay fault“ am Gerät führt die gemessene Leistung als Attribut mit.\n2. Wenn ja: den Aktor als defekt behandeln und den Austausch einplanen. Ein Kontakt, der einmal verschweißt, tut es wieder — und per Software ist er nicht mehr abzuschalten, nur noch über die Sicherung.\n3. Läuft die Last wirklich nicht, führt die Verdrahtung womöglich Strom an diesem Relais vorbei (etwa eine Wechselschaltung). Diese Warnung lässt sich in den Optionen der Integration abschalten.\n\nDie Warnung verschwindet von selbst, sobald der Kanal fünf Minuten lang wieder mit seiner eigenen Messung übereinstimmt."
+    },
+    "device_health": {
+      "title": "Einige Shelly-Geräte melden Probleme",
+      "description": "{count} Gerät(e) in {entry_title} haben einen Gesundheits-Schwellwert überschritten und lagen mindestens fünf Minuten lang darüber.\n\nBefunde: {summary}\n\nGerät(e): {devices}\n\nAlles davon stammt aus den Statusdaten, die die Integration ohnehin abruft — bei der Shelly Cloud wurde nichts zusätzlich angefragt. Was die einzelnen Befunde bedeuten (die Bezeichnungen oben sind englisch, weil sie direkt aus der Auswertung kommen):\n\n- **Wi-Fi signal** — das Gerät liegt bei -70 dBm oder schlechter. Die Verbindung funktioniert noch, muss aber viel wiederholen; das Gerät fällt häufiger aus der Cloud als der Rest. Gerät versetzen, Access Point versetzen oder einen näheren ergänzen.\n- **Temperature** — eine Komponente meldet 70 °C oder mehr. Meist ein Gerät in einer gedämmten Unterputzdose oder eines, das mehr Strom schaltet, als der Einbauort verträgt. Bewertet wird nur die Eigenwärme einer Komponente; ein externer Fühler am Shelly Add-on nicht, weil ein Fühler im Heizungsvorlauf bauartbedingt heiß ist.\n- **Free memory / Free storage** — weniger als 20 % frei. Skripte, Zeitpläne und Firmware-Updates brauchen diesen Platz; unter 10 % verweigert die Firmware Arbeit und startet neu.\n- **Restart pending** — eine Konfigurationsänderung ist noch nicht übernommen. Gerät in der Shelly-App neu starten.\n- **Component error** — das meldet das Gerät selbst, meistens ein angeschlossener Add-on-Fühler, der nicht mehr antwortet.\n- **Firmware update** — reine Information und standardmäßig aus. Erscheint hier nur, wenn du es in den Optionen eingeschaltet hast.\n\nDas ist eine Karte für das gesamte Konto, nie eine pro Gerät. Sie verschwindet von selbst, sobald alle Geräte wieder unter ihren Schwellwerten liegen; die ganze Prüfung lässt sich unter Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren abschalten."
     }
   }
 }
