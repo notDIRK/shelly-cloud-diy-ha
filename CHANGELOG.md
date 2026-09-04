@@ -9,6 +9,24 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.10.0 — 2026-09-04
+
+- **New: wet/dry for Gen2+ flood sensors.** A Shelly Flood S Gen4 reports its
+  alarm as an RPC component (`flood:<id>`), which the entity builders did not
+  know, so the device arrived with its battery and reporting diagnostics and
+  nothing else — the one reading it exists for was missing. Every `flood:<id>`
+  now creates a moisture binary sensor, and a flood-only device is recognised
+  as Gen2 without leaning on its battery component. Contributed by
+  [@JTertin](https://github.com/JTertin), reported by @mrhappy79 (#41, #40).
+- Gen1 energy meters (Shelly 3EM, `SHEM-3`) now create the returned-energy
+  sensors. These meters keep two cumulative counters per clamp channel —
+  `total` for consumption and `total_returned` for grid feed-in — but only the
+  consumption half was ever instantiated, so anyone feeding PV back into the
+  grid lost that reading entirely. One `Energy Returned` sensor per channel, in
+  Wh, ready for the Energy dashboard's "Return to grid". Reported by @Pasimk
+  (#38).
+- Repair cards no longer cut a device name mid-word (#37).
+
 ## v0.9.2 — 2026-08-18
 
 - The device picker's bulk action ("tick all" / "untick all") no longer looks
