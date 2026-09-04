@@ -334,6 +334,24 @@ def _create_block_sensors(
                     coordinator, device_id, desc, 0, "sensor", "state"
                 ))
 
+    # Flood / Smoke — Gen1 leaf sensors carry a bare top-level flag:
+    # Shelly Flood (``SHWT-1``) reports ``"flood": false`` and Shelly Smoke
+    # (``SHSM-01``) reports ``"smoke": false``, both alongside ``is_valid``
+    # and a ``tmp`` block (vendor Gen1 API docs, /status). Both descriptions
+    # have existed since the first release but were never wired to a status
+    # key, so these devices arrived with their diagnostics and without the one
+    # reading they exist for — the same gap the Gen4 flood had in #41.
+    for flag in ("flood", "smoke"):
+        if flag in status:
+            desc = BLOCK_BINARY_SENSORS.get(flag)
+            if desc:
+                uid = f"{device_id}_{flag}"
+                if uid not in created:
+                    created.add(uid)
+                    entities.append(BlockBinarySensor(
+                        coordinator, device_id, desc, 0, None, flag
+                    ))
+
     # Gas alarm
     gas = status.get("gas_sensor", {})
     if gas and "alarm_state" in gas:
