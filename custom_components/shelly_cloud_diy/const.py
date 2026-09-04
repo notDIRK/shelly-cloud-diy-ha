@@ -160,7 +160,7 @@ PLATFORMS: list[Platform] = [
 # They must not be re-added with an optional index either — a Gen1 status has
 # a bare ``cloud`` key too, which would classify every Gen1 device as Gen2.
 _GEN2_PATTERN = re.compile(
-    r"(switch|light|cover|input|temperature|humidity"
+    r"(switch|light|cover|input|temperature|humidity|flood"
     r"|devicepower|voltmeter|em1data|em1|emdata|em|pm1"
     r"|boolean|number|enum|text|button):\d+"
 )
