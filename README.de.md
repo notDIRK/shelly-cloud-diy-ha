@@ -107,6 +107,7 @@ Lücke schließt dieses Projekt.
 | 🔌 **Opt-in-Entities** | Schalter, Lampen, Rollladen, Sensoren, Binary Sensors, Buttons — nur für die Geräte angelegt, die du auswählst, damit es keine Doppler mit der LAN-Integration gibt. | ✅ ausgeliefert |
 | 📡 **Ausfall-Erkennung** | Ein **Reporting**-Sensor je Gerät, der abfällt, sobald sich ein Gerät nicht mehr meldet — das Signal, das `cloud.connected` nicht liefern kann (siehe unten). | ✅ ausgeliefert |
 | ⚡ **Warnung bei klebendem Kontakt** | Meldet, wenn ein Relais sich als offen meldet, während die geräteeigene Messung weiter eine Last sieht — ein verschweißter Kontakt (siehe unten). | ✅ ausgeliefert |
+| 🩺 **Gesundheitsprüfung** | Meldet, wenn ein Gerät heiß läuft, sein WLAN-Signal schwach ist oder ihm Speicher ausgeht — aus Daten, die der Abruf ohnehin liefert, ohne eine einzige zusätzliche Anfrage (siehe unten). | ✅ ausgeliefert |
 | 📈 **Energie-Verlaufsimport** | Importiert historische Energiedaten in die Home-Assistant-Langzeitstatistik. | ✅ ausgeliefert |
 | ⚙️ **Config- + Options-Flow** | `auth_key` einfügen; Poll-Intervall und Geräte-Auswahl später anpassen. | ✅ ausgeliefert |
 | 🌍 **Lokalisierte UI** | Englische und deutsche Übersetzungen für jeden sichtbaren Text. | ✅ ausgeliefert |
@@ -206,6 +207,61 @@ bleiben ganz außen vor — dort ist „Relais aus, Strom fließt" einfach ein
 fahrender Rollladen. Sitzt ein Shelly in einer Wechselschaltung, wo der andere
 Schalter Strom durch die Messung schicken kann, obwohl das Relais wirklich offen
 ist, lässt sich der Detektor in den Optionen abschalten.
+
+
+### Mitbekommen, wenn es einem Gerät schlecht geht
+
+Jeder Abruf liefert ohnehin schon das WLAN-Signal jedes Geräts, die Temperatur,
+die seine Komponenten über sich selbst melden, wie viel Speicher und
+Dateisystem-Platz übrig ist, ob noch ein Neustart aussteht und ob eine
+Komponente einen eigenen Fehler meldet. Bis v0.11.0 wurde nichts davon
+ausgewertet — es lag im Payload und lief ins Leere.
+
+Jetzt wird es ausgewertet, als **eine Reparatur-Karte für das ganze Konto**
+statt einer pro Gerät, und es kostet **keine einzige zusätzliche Anfrage** an
+die Shelly Cloud: die Daten waren ohnehin unterwegs.
+
+| Prüfung | Warnung | Fehler |
+|---|---|---|
+| WLAN-Signal | -70 dBm | -85 dBm |
+| Komponententemperatur | 70 °C | 85 °C |
+| Freier Speicher / Dateisystem | unter 20 % | unter 10 % |
+| Neustart steht noch aus | — | ja |
+| Komponente meldet eigenen Fehler | — | ja |
+
+Die Schwellwerte sind an einem echten Konto mit 64 Geräten gesetzt worden, nicht
+im luftleeren Raum gewählt: dort meldet die Prüfung 19 Befunde auf 14 der 64
+Geräte — weder still noch eine Lawine. Ein Befund muss drei geräteeigene
+Meldungen *und* fünf Minuten überstehen, bevor er genannt wird; ein Gerät, das
+nach einem Firmware-Update kurz warm ist, löst also keine Karte aus.
+
+Drei bewusste Grenzen, denn eine Prüfung, die zu oft „Wolf" ruft, ist schlimmer
+als gar keine:
+
+- **Gewertet wird nur die Eigenwärme einer Komponente.** Ein externer Fühler am
+  Shelly Add-on nicht: ein Fühler im Heizungsvorlauf oder in der Sauna ist
+  bauartbedingt heiß, und die Daten geben nichts her, um das von einem
+  überhitzten Gerät zu unterscheiden. Ein *defekter* Fühler wird trotzdem
+  gemeldet — über die Komponentenfehler-Prüfung.
+- **Bluetooth-Geräte (BLU) werden nur nach der einen Zahl beurteilt, die sie
+  haben** — dem Signal, das ihr Gateway für sie meldet. Alle anderen Felder
+  fehlen ihnen, und „unbekannt" darf nie als „krank" gelesen werden.
+- **Gen1-Geräte werden gar nicht beurteilt.** Es lag kein Gen1-Payload vor, an
+  dem sich ein Schwellwert prüfen ließe, und eine Prüfung, die niemand
+  verifizieren kann, ist schlechter als keine.
+
+**Ausstehende Firmware-Updates zählen nur als Befund, wenn du es einschaltest.**
+Auf einem typischen Konto hat die Mehrheit der Geräte eines offen; eine Karte,
+die dauerhaft leuchtet, ist eine Karte, die du nicht mehr liest — auch an dem
+Tag, an dem sie ein Gerät bei 85 °C meldet.
+
+Jedes Gen2+-Gerät bekommt außerdem einen **WLAN-Signal**-Sensor (Kategorie
+Diagnose), und die Geräte-Diagnose enthält einen *coverage*-Abschnitt, der
+benennt, welche Teile des Payloads bei uns noch gar keine Entität erzeugen — so
+taucht eine Lücke in einem Fehlerbericht auf, statt darauf zu warten, dass sie
+jemandem auffällt.
+
+Die ganze Prüfung lässt sich in den Optionen abschalten.
 
 ---
 

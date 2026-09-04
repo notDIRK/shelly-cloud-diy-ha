@@ -102,6 +102,7 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 | 🔌 **Opt-in entities** | Switches, lights, covers, sensors, binary sensors, buttons — materialised only for the devices you choose, so you avoid duplicates with the LAN integration. | ✅ shipped |
 | 📡 **Offline detection** | A per-device **Reporting** sensor that turns off when a device stops checking in — the signal `cloud.connected` cannot give you (see below). | ✅ shipped |
 | ⚡ **Stuck-contact warning** | Warns when a relay reports itself as open while the device's own meter still sees a load — a welded contact (see below). | ✅ shipped |
+| 🩺 **Health checks** | Warns when a device runs hot, its Wi-Fi signal is weak, or it is short of memory or storage — from data the poll already returns, at no extra request (see below). | ✅ shipped |
 | 📈 **Energy history import** | Imports historical energy data into Home Assistant long-term statistics. | ✅ shipped |
 | ⚙️ **Config + options flow** | Paste your `auth_key`; tune the poll interval and per-device enablement later. | ✅ shipped |
 | 🌍 **Localised UI** | English and German translations for every user-visible string. | ✅ shipped |
@@ -196,6 +197,58 @@ contact next to it, and Gen1 roller-shutter devices are skipped entirely — the
 "relay off, power flowing" is just a moving shutter. If a Shelly of yours sits in
 a two-way circuit, where the other switch can push current through the meter
 while the relay is genuinely open, switch the detector off in the options.
+
+
+### Knowing when a device is unwell
+
+Every poll already returns each device's Wi-Fi signal, the temperature its
+components report about themselves, how much memory and storage it has left,
+whether a restart is still pending and whether any component is reporting an
+error of its own. Until v0.11.0 none of that was interpreted — it sat in the
+payload and went nowhere.
+
+It is interpreted now, as **one repair card for the whole account** rather than
+one per device, and it costs **no extra request** to Shelly Cloud: the data was
+already on its way.
+
+| Check | Warning | Error |
+|---|---|---|
+| Wi-Fi signal | -70 dBm | -85 dBm |
+| Component temperature | 70 °C | 85 °C |
+| Free memory / storage | under 20 % | under 10 % |
+| Restart still pending | — | yes |
+| A component reporting its own error | — | yes |
+
+The thresholds were set against a real 64-device account rather than picked in
+the abstract, and on that account the check reports 19 findings across 14 of the
+64 — neither silent nor a wall of noise. A finding must survive three of the
+device's own check-ins *and* five minutes before it is mentioned, so a device
+briefly warm after a firmware flash never raises a card.
+
+Three deliberate limits, because a health check that cries wolf is worse than
+none:
+
+- **Only a component's own heat counts.** An external probe on a Shelly Add-on
+  does not: a sensor in a boiler flow pipe or a sauna is hot by design, and the
+  data offers no way to tell that apart from an overheating device. A *broken*
+  probe is still reported, through the component-error check.
+- **Bluetooth (BLU) devices are judged on the one figure they have** — the
+  signal their gateway reports for them. They carry none of the other fields,
+  and "unknown" must never be read as "unhealthy".
+- **Gen1 devices are not judged at all.** No Gen1 payload was available to
+  verify a threshold against, and a check nobody can verify is worse than no
+  check.
+
+**Pending firmware updates are a finding only if you switch that on.** On a
+typical account most devices have one; a card that is permanently lit is a card
+you stop reading, including on the day it reports a device cooking at 85 °C.
+
+Every Gen2+ device also gets a **Wi-Fi signal** sensor (diagnostic category), and
+device diagnostics carry a *coverage* section naming the parts of a device's
+payload that still produce no entity — so a gap turns up in a bug report instead
+of waiting for someone to notice it.
+
+The whole check has an off switch in the options.
 
 ---
 

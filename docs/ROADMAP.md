@@ -215,9 +215,14 @@ Prerequisites (all met):
 Path to HA Core quality-scale `silver` / `gold`:
 - ✅ `async_get_config_entry_diagnostics` for sanitized export — shipped
   (`diagnostics.py`), and it is what makes remote issue triage possible.
-- ⏳ `repairs` platform for actionable issue flags (rate-limit exhaustion,
-  token expiry, etc.) — planned as the follow-up to M2, because the states
-  worth surfacing are mostly realtime/auth states.
+- ✅ Repair issues for actionable states — shipped in v0.8.0 and grown
+  since: a sustained rate limit, devices that vanished from the account, a
+  failed history import, a welded relay contact (v0.9.0) and the device
+  health thresholds (v0.11.0). Five cards, all informational and all
+  aggregated per config entry. Note the module is `repair_issues.py`, not
+  `repairs.py`: on HA 2025.1.4 the platform loader rejects a `repairs.py`
+  that exposes no `async_create_fix_flow`, and none of these conditions can
+  be fixed from inside Home Assistant anyway.
 - ⏳ Test coverage target ≥ 70 %.
 - 🔄 CI: lint, type-check (mypy), test matrix against supported HA versions
   — GitHub Actions runs hassfest + HACS validation today; local test runs

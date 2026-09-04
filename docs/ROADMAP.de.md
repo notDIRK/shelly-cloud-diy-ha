@@ -235,10 +235,15 @@ Pfad zu HA-Core-Quality-Scale `silver` / `gold`:
 - ✅ `async_get_config_entry_diagnostics` für sanitisierten Export —
   ausgeliefert (`diagnostics.py`), und genau das macht Remote-Triage von
   Issues überhaupt erst möglich.
-- ⏳ `repairs`-Plattform für aktionable Fehlerkennzeichnungen
-  (Rate-Limit-Erschöpfung, Token-Ablauf etc.) — als Nachzieher zu M2
-  geplant, weil die meldenswerten Zustände überwiegend Realtime- und
-  Auth-Zustände sind.
+- ✅ Reparatur-Hinweise für aktionable Zustände — mit v0.8.0 ausgeliefert
+  und seither gewachsen: anhaltendes Rate-Limit, aus dem Konto
+  verschwundene Geräte, fehlgeschlagener Verlaufsimport, verschweißter
+  Relaiskontakt (v0.9.0) und die Gesundheits-Schwellwerte (v0.11.0). Fünf
+  Karten, alle rein informativ und alle pro Config-Entry aggregiert.
+  ⚠ Das Modul heißt `repair_issues.py`, nicht `repairs.py`: auf HA 2025.1.4
+  weist der Plattform-Loader eine `repairs.py` ohne
+  `async_create_fix_flow` zurück — und keiner dieser Zustände lässt sich
+  ohnehin aus Home Assistant heraus beheben.
 - ⏳ Testabdeckung ≥ 70 %.
 - 🔄 CI: Lint, Type-Check (mypy), Test-Matrix gegen unterstützte
   HA-Versionen — in GitHub Actions laufen heute hassfest + HACS-Validation;
