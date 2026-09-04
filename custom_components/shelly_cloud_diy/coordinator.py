@@ -37,10 +37,14 @@ from .api.cloud_control import (
 )
 from .const import (
     CONF_CREATE_ALL_INITIALLY,
+    CONF_DEVICE_HEALTH_DETECTION,
+    CONF_DEVICE_HEALTH_FIRMWARE,
     CONF_ENABLED_DEVICES,
     CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
     CONF_RELAY_FAULT_DETECTION,
+    DEVICE_HEALTH_DETECTION_DEFAULT,
+    DEVICE_HEALTH_FIRMWARE_DEFAULT,
     DOMAIN,
     OFFLINE_AFTER_DEFAULT,
     POLL_INTERVAL_DEFAULT,
@@ -48,12 +52,19 @@ from .const import (
     SIGNAL_NEW_DEVICE,
     device_gen,
 )
+from .device_health import (
+    HealthFinding,
+    evaluate_device_health,
+    finding_key,
+    health_verdict,
+)
 from .relay_fault import (
     iter_relay_readings,
     relay_clear_verdict,
     relay_fault_verdict,
 )
 from .repair_issues import (
+    async_manage_device_health_issue,
     async_manage_missing_devices_issue,
     async_manage_rate_limit_issue,
     async_manage_relay_fault_issue,
@@ -416,6 +427,17 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # poll, since a device that dies with a welded contact is still
         # welded shut.
         self.relay_faults: set[tuple[str, int]] = set()
+        # Device-health bookkeeping, keyed per (device_id, check, component)
+        # so a device can complete the streak for its Wi-Fi signal while its
+        # temperature finding is still too young to mention. Same reason as
+        # the relay maps above: the count is in CHECK-INS, not polls.
+        self._health_streak: dict[tuple[str, str, str], int] = {}
+        self._health_since: dict[tuple[str, str, str], float] = {}
+        # The published verdicts, device_id -> confirmed findings. Read by
+        # the aggregated repair card. Entries survive a device going quiet:
+        # a device that dropped off the cloud at 84 °C is not cooler for
+        # having stopped talking about it.
+        self.device_health: dict[str, tuple[HealthFinding, ...]] = {}
 
     # ── Offline detection bookkeeping ─────────────────────────────────
 
@@ -596,6 +618,126 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             if reading.channel == channel:
                 return reading.power if not reading.output else None
         return None
+
+    # ── Device-health bookkeeping ("Doctor") ──────────────────────────
+
+    @property
+    def device_health_detection(self) -> bool:
+        """Whether the threshold health checks are switched on."""
+        return bool(
+            self._options.get(
+                CONF_DEVICE_HEALTH_DETECTION, DEVICE_HEALTH_DETECTION_DEFAULT
+            )
+        )
+
+    @property
+    def device_health_firmware(self) -> bool:
+        """Whether a pending firmware update counts as a finding."""
+        return bool(
+            self._options.get(
+                CONF_DEVICE_HEALTH_FIRMWARE, DEVICE_HEALTH_FIRMWARE_DEFAULT
+            )
+        )
+
+    def _evaluate_device_health(self, now: float) -> None:
+        """Re-judge the health thresholds against the current snapshot.
+
+        Only devices that checked in on THIS poll are judged, for the same
+        reason ``_evaluate_relay_faults`` does it: a device that freezes
+        keeps re-serving its last payload for as long as the cloud caches
+        it, so counting polls would let one stale snapshot be repeated into
+        a verdict — and by the same token a repeated payload must not be
+        allowed to clear one either.
+
+        Unlike the relay detector, clearing is immediate on the first
+        contradicting check-in rather than delayed. The asymmetry there
+        exists because a welded contact can produce an innocent-looking
+        sample in the middle of a live fault; nothing here can. A device
+        that now reports 45 °C is not hiding a hot chip, so holding the
+        finding open for another five minutes would only mean showing the
+        user something that has stopped being true.
+        """
+        if not self.device_health_detection:
+            if self.device_health:
+                self.device_health.clear()
+                self._health_streak.clear()
+                self._health_since.clear()
+            async_manage_device_health_issue(
+                self.hass, self._entry, active=False, findings={}, names={}
+            )
+            return
+
+        include_firmware = self.device_health_firmware
+
+        for device_id, info in self.devices.items():
+            if not self.is_enabled(device_id):
+                continue
+            # ``_record_checkin`` stamps this poll's ``now`` on the record
+            # exactly when the payload fingerprint changed, so equality here
+            # IS "the device reported something new this time round".
+            record = self.checkins.get(device_id)
+            if record is None or record.last_checkin != now:
+                continue
+
+            findings = evaluate_device_health(
+                info.get("status", {}), include_firmware=include_firmware
+            )
+            present = {finding_key(device_id, f): f for f in findings}
+
+            # Findings that vanished on a fresh check-in lose their history
+            # outright, so a flapping value has to serve both gates again
+            # from scratch rather than accumulating a streak over an hour.
+            for key in [
+                k for k in self._health_streak if k[0] == device_id
+            ]:
+                if key not in present:
+                    del self._health_streak[key]
+                    self._health_since.pop(key, None)
+
+            confirmed: list[HealthFinding] = []
+            for key, finding in present.items():
+                self._health_streak[key] = self._health_streak.get(key, 0) + 1
+                self._health_since.setdefault(key, now)
+                if health_verdict(
+                    self._health_streak[key], self._health_since[key], now
+                ):
+                    confirmed.append(finding)
+
+            if confirmed:
+                self.device_health[device_id] = tuple(sorted(confirmed))
+            else:
+                self.device_health.pop(device_id, None)
+
+        # Devices the user unticked (or that left the account) must not keep
+        # a card alive: the finding is about hardware we no longer look at.
+        # Their streak history goes with them — it is only ever pruned on a
+        # fresh check-in, and a device that has left will never file one, so
+        # without this the maps would keep every departed device forever.
+        # Derived from the streak map as well as the verdicts, because a
+        # device can leave while a finding of its own is still too young to
+        # have been published.
+        gone = {
+            device_id
+            for device_id in {*self.device_health, *(k[0] for k in self._health_streak)}
+            if device_id not in self.devices or not self.is_enabled(device_id)
+        }
+        for device_id in gone:
+            self.device_health.pop(device_id, None)
+        for key in [k for k in self._health_streak if k[0] in gone]:
+            del self._health_streak[key]
+            self._health_since.pop(key, None)
+
+        async_manage_device_health_issue(
+            self.hass,
+            self._entry,
+            active=bool(self.device_health),
+            findings=dict(self.device_health),
+            names=self._display_names(set(self.device_health)),
+        )
+
+    def health_findings(self, device_id: str) -> tuple[HealthFinding, ...]:
+        """Confirmed findings for one device, empty when it is healthy."""
+        return self.device_health.get(device_id, ())
 
     # ── Deep-sleep freshness bookkeeping (#13) ────────────────────────
 
@@ -859,6 +1001,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self._evaluate_missing_devices(set(new_devices))
         # Reads ``self.devices``, so it must stay below the assignment above.
         self._evaluate_relay_faults(now)
+        self._evaluate_device_health(now)
 
         return new_devices
 

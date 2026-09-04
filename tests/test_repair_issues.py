@@ -60,10 +60,13 @@ _EXPECTED_ISSUE_KEYS = {
     "missing_devices",
     "history_import_failed",
     "relay_fault",
+    "device_health",
 }
 
 # Everything the async_manage_* wrappers actually supply as placeholders.
-_SUPPLIED_PLACEHOLDERS = {"entry_title", "count", "device_ids", "devices"}
+_SUPPLIED_PLACEHOLDERS = {
+    "entry_title", "count", "device_ids", "devices", "summary",
+}
 
 
 # ── Part A: issue id scoping ──────────────────────────────────────────
@@ -405,6 +408,9 @@ class _RealCoordinatorDriver:
         coord._relay_fault_since = {}
         coord._relay_healthy_since = {}
         coord.relay_faults = set()
+        coord._health_streak = {}
+        coord._health_since = {}
+        coord.device_health = {}
         self.coord = coord
 
         sink = self.sink
