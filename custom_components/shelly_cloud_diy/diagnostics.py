@@ -17,6 +17,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    CLOUD_CONTROL_DEFAULT,
+    CONF_CLOUD_CONTROL,
     CONF_CREATE_ALL_INITIALLY,
     CONF_ENABLED_DEVICES,
     CONF_LOCAL_GATEWAY_URL,
@@ -56,6 +58,7 @@ KNOWN_OPTION_KEYS = frozenset(
         CONF_ENABLED_DEVICES,
         CONF_LOCAL_GATEWAY_URL,
         CONF_RELAY_FAULT_DETECTION,
+        CONF_CLOUD_CONTROL,
     }
 )
 
@@ -87,6 +90,61 @@ DEVICE_TO_REDACT = {"name", "cloud_name", "ssid", "sta_ip", "ip", "mac"}
 STRUCTURAL_STATUS_KEYS = frozenset(
     {"_updated", "_dev_info", "serial", "ts", "id", "code"}
 )
+
+
+def _cloud_control_diagnostics(
+    options: dict[str, Any], coordinator: Any | None
+) -> dict[str, Any]:
+    """Explain the opt-in control channel, verdict by verdict.
+
+    This block exists for one support question that has no other answer:
+    *why does this device have no switch?* The channel refuses three
+    different ways — the option is off, the relay never came up, or the
+    relay will not route to that particular device — and from the outside
+    all three look identical: a device with a read-only sensor and nothing
+    to press.
+
+    The same two rules as the block below hold, in the same order: nothing
+    from ``entry.data`` is read (the OAuth token lives there, and a
+    diagnostics file is something users paste into public issues), and
+    device ids appear only as fleet-map fingerprints. The token's existence
+    is not reported either — "is there a token" is answered well enough by
+    whether the channel connected, and every extra sentence about a stored
+    credential is one more thing to get wrong later.
+    """
+    # The coordinator's reading where there is one, so this block reports the
+    # option as it is in force rather than as it is stored.
+    enabled = getattr(coordinator, "cloud_control", None)
+    if not isinstance(enabled, bool):
+        enabled = bool(options.get(CONF_CLOUD_CONTROL, CLOUD_CONTROL_DEFAULT))
+    report: dict[str, Any] = {"mode": "on" if enabled else "off"}
+    if not enabled or coordinator is None:
+        return report
+
+    ownership = getattr(coordinator, "device_ownership", None)
+    if not isinstance(ownership, dict):
+        return {**report, "note": "coordinator carries no ownership verdicts"}
+    unresolved = getattr(coordinator, "cloud_control_unclassified", None)
+    unresolved = unresolved if isinstance(unresolved, (set, frozenset)) else set()
+
+    verdicts = {
+        fingerprint(device_id): getattr(verdict, "value", str(verdict))
+        for device_id, verdict in ownership.items()
+    }
+    # Deliberately reported as their own value rather than folded in with the
+    # definite ones: "we could not tell" is a state that resolves itself on
+    # the next probe, and reading it as a verdict is the exact mistake the
+    # coordinator refuses to make.
+    verdicts.update({fingerprint(device_id): "unknown" for device_id in unresolved})
+
+    return {
+        **report,
+        "connected": bool(getattr(coordinator, "cloud_control_connected", False)),
+        "owned": sum(1 for v in verdicts.values() if v == "owned"),
+        "not_routable": sum(1 for v in verdicts.values() if v == "not_routable"),
+        "unclassified": len(unresolved),
+        "verdicts": dict(sorted(verdicts.items())),
+    }
 
 
 def _config_diagnostics(
@@ -178,6 +236,7 @@ def _config_diagnostics(
             },
             "other_option_keys": sorted(set(options) - KNOWN_OPTION_KEYS),
         },
+        "cloud_control": _cloud_control_diagnostics(options, coordinator),
         "devices": devices,
     }
 

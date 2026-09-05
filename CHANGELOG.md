@@ -11,6 +11,32 @@ which has no release pages.
 
 ## Unreleased
 
+- **New: switching virtual components over the cloud — opt-in, and off by
+  default.** An irrigation controller's zones and a script's boolean can be
+  read through the documented Cloud Control API but not written: every
+  documented route answers "no such route" (measured, with a known-good call
+  as the negative control). They can be written over the cloud WebSocket relay
+  Shelly's own app uses, which is **undocumented** and which Shelly support
+  declared unsupported on 2026-07-27 — so it is a switch the user turns on
+  knowingly, not a default. Switching it on asks for the Shelly account
+  sign-in the relay needs (the password is used once and never stored; only
+  the resulting token is, and turning the option off again deletes it) and
+  opens a second connection used for commands only. It works **only on devices
+  the account owns** — Shelly's relay refuses to route to a shared device, and
+  every device carrying such a component is asked once per session (never per
+  poll), with the answer in diagnostics so
+  "why has my device no switch" is answerable from a bug report. The new
+  switch is created **beside** the existing read-only sensor of the same
+  component, never instead of it: replacing it would silently break every
+  automation already pointing at it. A failed command raises an error in the
+  UI and in the automation trace instead of reporting a success, and the state
+  afterwards comes from the next poll rather than an optimistic guess — a
+  guess is exactly what would hide a valve that accepted the command and did
+  not move; if the control channel itself is down, the switch goes unavailable
+  rather than looking operable. **With the option off nothing about the integration changes:** no
+  sign-in, no second connection, no probe, no new entity.
+- The poll, the offline detector, the relay-fault detector and the health
+  checks are untouched by all of the above, and their tests pass unchanged.
 - **New: a Gateway signal sensor for Bluetooth (BLU) devices.** How well the
   bridging gateway hears the device — the only signal figure a BLU sensor has,
   present on every one of them and until now surfaced nowhere. Named after the

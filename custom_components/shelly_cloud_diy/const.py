@@ -99,6 +99,50 @@ DEVICE_HEALTH_DETECTION_DEFAULT = True
 CONF_DEVICE_HEALTH_FIRMWARE = "device_health_firmware"
 DEVICE_HEALTH_FIRMWARE_DEFAULT = False
 
+# ── Cloud control for owned devices (opt-in, off by default) ───────
+#
+# Sending a command to a virtual component means leaving the documented
+# Cloud Control API: every documented HTTP route answers 404 for it
+# (measured 2026-08-09, with a known-good ``set/switch`` answering 400 as
+# the negative control), while the cloud WebSocket relay carries the
+# device's own ``Boolean.Set`` and succeeds. That relay is undocumented,
+# Shelly support declared it unsupported on 2026-07-27, it needs the
+# account password once to mint an OAuth token, and it refuses to route to
+# devices the account does not own.
+#
+# Four reasons for an option — and for it defaulting to OFF, unlike the
+# relay-fault and health detectors, which only interpret data the poll
+# already returns. This one adds a credential, a second connection and a
+# channel that can be withdrawn without notice. A user has to be able to
+# say no to that, and saying nothing has to mean no.
+CONF_CLOUD_CONTROL = "cloud_control"
+CLOUD_CONTROL_DEFAULT = False
+
+# ``entry.data`` key holding the OAuth token minted from that sign-in.
+# It lives beside the ``auth_key`` (the poll keeps using that one, and only
+# that one) and never in ``entry.options``: options are handed around by
+# the options flow, echoed into log lines on a reload and read by the
+# diagnostics block, none of which may ever see a token.
+#
+# The password itself is stored NOWHERE. It is hashed at the flow boundary
+# by ``oauth.sha1_password`` and the digest dies with the login request, so
+# a dead refresh token genuinely means "ask the human" — see
+# ``ShellyTokenManager``.
+CONF_OAUTH_TOKEN = "oauth_token"  # noqa: S105 — a key name, not a secret
+
+# Marker put into the reauth flow's data when it is the OAuth token that
+# was rejected rather than the ``auth_key``. Without it the reauth form
+# would ask for the wrong credential — both failures land in the same flow.
+REAUTH_CLOUD_CONTROL = "cloud_control_reauth"
+
+# How often the ownership re-probe wakes while any enabled device is still
+# unclassified. Long, because the pass exists for one situation only: the
+# relay was unreachable (or answered something unfamiliar) when a device
+# was first asked about, so no verdict could be formed. The task exits as
+# soon as every enabled device has one, so a healthy account pays nothing
+# beyond the single probe pass at setup.
+OWNERSHIP_REPROBE_INTERVAL_S = 15 * 60
+
 # ── Historical sync (unchanged from pre-pivot) ─────────────────────
 
 HISTORICAL_SYNC_INTERVAL = 24 * 60 * 60  # daily

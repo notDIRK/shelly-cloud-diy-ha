@@ -103,6 +103,7 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 | 📡 **Offline detection** | A per-device **Reporting** sensor that turns off when a device stops checking in — the signal `cloud.connected` cannot give you (see below). | ✅ shipped |
 | ⚡ **Stuck-contact warning** | Warns when a relay reports itself as open while the device's own meter still sees a load — a welded contact (see below). | ✅ shipped |
 | 🩺 **Health checks** | Warns when a device runs hot, its Wi-Fi signal is weak, or it is short of memory or storage — from data the poll already returns, at no extra request (see below). | ✅ shipped |
+| 🎛️ **Cloud control** | Switches for virtual components — an irrigation controller's zones, a script's boolean — that the documented API cannot write at all. Off by default, rides an **unsupported** channel, and works only on devices your account owns (see below). | 🧪 opt-in |
 | 📈 **Energy history import** | Imports historical energy data into Home Assistant long-term statistics. | ✅ shipped |
 | ⚙️ **Config + options flow** | Paste your `auth_key`; tune the poll interval and per-device enablement later. | ✅ shipped |
 | 🌍 **Localised UI** | English and German translations for every user-visible string. | ✅ shipped |
@@ -260,6 +261,53 @@ device's payload that still produce no entity, so a gap turns up in a bug report
 instead of waiting for someone to notice it.
 
 The whole check has an off switch in the options.
+
+### Switching what the documented API cannot switch *(opt-in, unsupported)*
+
+Some things a Shelly can do have no route in the documented Cloud Control API.
+An irrigation controller's zones, or the boolean a script exposes, are *virtual
+components*: the cloud will happily tell you their state, and offers no way to
+change it. Every documented route answers "no such route" — measured, with a
+known-good call answering something else, so it really is absence and not a
+wrong parameter.
+
+There is another way, and it is worth being blunt about what it is. Shelly's own
+app talks to devices over a cloud WebSocket relay that carries a device's own
+RPC, and that relay does accept the write. It is **undocumented**, and Shelly
+support stated on 2026-07-27 that undocumented endpoints are not part of the
+supported API. It can change or disappear without notice.
+
+So it is **off by default**, and switching it on is a decision with a price
+tag:
+
+- It needs your **Shelly account sign-in**, because the relay accepts an account
+  token and not the Authorization cloud key. The password is used once to sign
+  in and is **never stored** — only the resulting token is, in the same place
+  the cloud key lives, and switching the option off again deletes it.
+- It opens a **second connection** to Shelly Cloud, used for commands only. Your
+  device state still comes from the ordinary poll, so nothing that already works
+  changes behaviour.
+- It works **only on devices your account owns**. Shelly's relay refuses to
+  route to a device that was shared with you, and there is no way around that
+  from here. Every device that carries such a component is asked once per
+  session — not on every poll — and the answer, owned or not routable or "could
+  not tell", is in the integration's diagnostics, so *"why has my device no
+  switch"* is answerable from a bug report.
+
+**The new switch appears next to the existing read-only sensor, not instead of
+it.** That redundancy is deliberate: replacing the sensor would silently break
+every automation and dashboard card already pointing at it, and "silently stops
+working" is the exact failure this feature is designed against.
+
+**A command that fails, fails loudly.** If the zone did not switch, you get an
+error in the UI and in the automation trace — never a quiet success. The state
+you see afterwards comes from the next poll rather than from an optimistic
+guess, because an optimistic guess is precisely what would hide a valve that
+accepted the command and did not move. If the channel itself is down, the switch
+says so by going **unavailable**, rather than looking operable and throwing on
+every press.
+
+Turn it on under *Settings → Devices & services → Shelly Cloud DIY → Configure*.
 
 ---
 
@@ -467,11 +515,20 @@ try it, but don't depend on it yet.
   scripts, and inputs onto its replacement over the LAN, for resilience that
   survives both an internet and a Home Assistant outage.
 
-### 🔭 Milestone 2 — OAuth + WebSocket realtime *(planned)*
+### 🎛️ Cloud control *(opt-in, unsupported — see above)*
 
-Push-based updates instead of polling: sub-second latency and ~0 steady-state
-traffic, by authenticating via OAuth and subscribing to Shelly Cloud events over
-a WebSocket.
+OAuth sign-in plus the cloud WebSocket relay, used for **commands only**:
+switching the virtual components the documented API cannot write, on devices
+your account owns.
+
+### 🔭 Push instead of polling *(not planned as a replacement)*
+
+The same relay can push state, and it was measured: push arrives only for
+devices the account **owns**, and sleeping battery and BLU devices never push at
+all. So it can sit in front of the poll but can never replace it — and the
+freshness bookkeeping the offline sensor is built on is not in the pushed
+frames. If it is built, it will be a strictly additive layer, and the honest
+promise is "faster where possible, never worse", not "no more polling".
 
 ---
 

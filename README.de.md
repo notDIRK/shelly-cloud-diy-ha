@@ -108,6 +108,7 @@ Lücke schließt dieses Projekt.
 | 📡 **Ausfall-Erkennung** | Ein **Reporting**-Sensor je Gerät, der abfällt, sobald sich ein Gerät nicht mehr meldet — das Signal, das `cloud.connected` nicht liefern kann (siehe unten). | ✅ ausgeliefert |
 | ⚡ **Warnung bei klebendem Kontakt** | Meldet, wenn ein Relais sich als offen meldet, während die geräteeigene Messung weiter eine Last sieht — ein verschweißter Kontakt (siehe unten). | ✅ ausgeliefert |
 | 🩺 **Gesundheitsprüfung** | Meldet, wenn ein Gerät heiß läuft, sein WLAN-Signal schwach ist oder ihm Speicher ausgeht — aus Daten, die der Abruf ohnehin liefert, ohne eine einzige zusätzliche Anfrage (siehe unten). | ✅ ausgeliefert |
+| 🎛️ **Cloud-Steuerung** | Schalter für virtuelle Komponenten — die Zonen eines Bewässerungscomputers, der Boolean eines Skripts —, die die dokumentierte API überhaupt nicht schreiben kann. Standardmäßig aus, läuft über einen **nicht unterstützten** Kanal und funktioniert nur auf Geräten, die deinem Konto gehören (siehe unten). | 🧪 Opt-in |
 | 📈 **Energie-Verlaufsimport** | Importiert historische Energiedaten in die Home-Assistant-Langzeitstatistik. | ✅ ausgeliefert |
 | ⚙️ **Config- + Options-Flow** | `auth_key` einfügen; Poll-Intervall und Geräte-Auswahl später anpassen. | ✅ ausgeliefert |
 | 🌍 **Lokalisierte UI** | Englische und deutsche Übersetzungen für jeden sichtbaren Text. | ✅ ausgeliefert |
@@ -273,6 +274,58 @@ eine Lücke in einem Fehlerbericht auf, statt darauf zu warten, dass sie jemande
 auffällt.
 
 Die ganze Prüfung lässt sich in den Optionen abschalten.
+
+### Schalten, was die dokumentierte API nicht schalten kann *(Opt-in, nicht unterstützt)*
+
+Manches, was ein Shelly kann, hat in der dokumentierten Cloud-Control-API keine
+Route. Die Zonen eines Bewässerungscomputers oder der Boolean, den ein Skript
+anbietet, sind *virtuelle Komponenten*: Die Cloud verrät ihren Zustand bereitwillig
+und bietet keinen Weg, ihn zu ändern. Jede dokumentierte Route antwortet „diese
+Route gibt es nicht" — gemessen, mit einer bekannt funktionierenden Anfrage als
+Gegenprobe, die etwas anderes antwortet. Es ist also wirklich Abwesenheit und
+kein falscher Parameter.
+
+Es gibt einen anderen Weg, und es lohnt sich, deutlich zu sagen, welchen. Shellys
+eigene App spricht über ein Cloud-WebSocket-Relay mit den Geräten, das deren
+eigenes RPC transportiert — und dieses Relay nimmt den Schreibbefehl an. Es ist
+**undokumentiert**, und der Shelly-Support hat am 27.07.2026 erklärt, dass
+undokumentierte Endpunkte nicht Teil der unterstützten API sind. Es kann sich
+jederzeit ändern oder verschwinden.
+
+Deshalb ist es **standardmäßig aus**, und das Einschalten hat einen Preis:
+
+- Es braucht die **Anmeldung an deinem Shelly-Konto**, weil das Relay ein
+  Konto-Token akzeptiert und nicht den Authorization cloud key. Das Passwort
+  wird einmal zur Anmeldung verwendet und **nie gespeichert** — gespeichert wird
+  nur das daraus entstehende Token, an derselben Stelle wie der Cloud Key, und
+  das Abschalten der Option löscht es wieder.
+- Es öffnet eine **zweite Verbindung** zur Shelly Cloud, ausschließlich für
+  Befehle. Der Gerätezustand kommt weiterhin aus dem normalen Abruf, es ändert
+  sich also nichts an dem, was heute schon funktioniert.
+- Es funktioniert **nur auf Geräten, die deinem Konto gehören**. Shellys Relay
+  weigert sich, zu einem geteilten Gerät zu routen, und daran führt von hier aus
+  kein Weg vorbei. Jedes Gerät, das eine solche Komponente hat, wird einmal pro
+  Sitzung gefragt — nicht bei jedem Abruf —, und die Antwort (eigenes Gerät,
+  nicht erreichbar oder „nicht feststellbar") steht in der Diagnose der
+  Integration. *„Warum hat mein Gerät keinen Schalter"* lässt sich damit aus
+  einem Fehlerbericht beantworten.
+
+**Der neue Schalter entsteht neben dem bestehenden schreibgeschützten Sensor,
+nicht an dessen Stelle.** Diese Doppelung ist Absicht: Den Sensor zu ersetzen
+würde jede Automatisierung und jede Dashboard-Karte, die darauf zeigt, still
+kaputtmachen — und „hört unbemerkt auf zu funktionieren" ist genau der Fehler,
+gegen den diese Funktion gebaut ist.
+
+**Ein Befehl, der scheitert, scheitert laut.** Wenn die Zone nicht geschaltet
+hat, gibt es einen Fehler in der Oberfläche und in der Automatisierungs-Trace —
+nie einen stillen Erfolg. Der Zustand danach kommt aus dem nächsten Abruf und
+nicht aus einer optimistischen Annahme, denn genau eine optimistische Annahme
+würde ein Ventil verbergen, das den Befehl angenommen und sich nicht bewegt hat.
+Ist der Kanal selbst weg, sagt der Schalter das, indem er **nicht verfügbar**
+wird — statt bedienbar auszusehen und bei jedem Druck zu scheitern.
+
+Einschalten unter *Einstellungen → Geräte & Dienste → Shelly Cloud DIY →
+Konfigurieren*.
 
 ---
 
@@ -490,11 +543,21 @@ Noch nicht fertig — gern ausprobieren, aber noch nicht darauf verlassen.
   und -Eingänge eines Shellys über das LAN auf den Ersatz, für Resilienz, die
   einen Internet- und einen Home-Assistant-Ausfall übersteht.
 
-### 🔭 Meilenstein 2 — OAuth + WebSocket-Realtime *(geplant)*
+### 🎛️ Cloud-Steuerung *(Opt-in, nicht unterstützt — siehe oben)*
 
-Push-basierte Updates statt Polling: Sub-Sekunden-Latenz und ~0 Steady-State-
-Traffic, durch Authentifizierung per OAuth und Abo der Shelly-Cloud-Events über
-einen WebSocket.
+OAuth-Anmeldung plus das Cloud-WebSocket-Relay, ausschließlich für **Befehle**:
+Schalten der virtuellen Komponenten, die die dokumentierte API nicht schreiben
+kann — auf Geräten, die deinem Konto gehören.
+
+### 🔭 Push statt Polling *(nicht als Ersatz geplant)*
+
+Dasselbe Relay kann auch Zustände pushen, und das wurde gemessen: Push kommt nur
+für Geräte an, die dem Konto **gehören**, und schlafende Batterie- und
+BLU-Geräte pushen überhaupt nie. Es kann sich also vor den Abruf setzen, ihn
+aber nie ersetzen — und die Frische-Informationen, auf denen der Ausfall-Sensor
+aufbaut, stehen in den gepushten Frames gar nicht drin. Falls es gebaut wird,
+dann als rein additive Schicht, und die ehrliche Zusage lautet „schneller, wo es
+geht, nie schlechter" — nicht „kein Polling mehr".
 
 ---
 
