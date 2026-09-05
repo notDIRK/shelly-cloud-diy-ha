@@ -36,12 +36,16 @@ sind nicht vorgesehen.
 
 Status: ✅ fertig · 🔄 in Arbeit · ⏳ geplant · 💡 angestrebt
 
-> **Wo das Projekt steht (2026-07-21, `v0.6.9`):** Die Meilensteine 0, 1
+> **Wo das Projekt steht (2026-09-05, `v0.11.0`):** Die Meilensteine 0, 1
 > und 3 sind erledigt — die Integration ist released, liegt im
 > HACS-Default-Store und ist längst über den ursprünglichen M1-Scope
 > hinausgewachsen (Gen1-/Gen2-/Gen3-Geräte, BLU-Familie, Energiemessung,
-> Virtual Components). Meilenstein 2 (OAuth + Realtime) ist gebaut, aber
-> nicht ausgeliefert; warum, steht im jeweiligen Abschnitt.
+> Virtual Components, Offline-Melder, Relais-Defekt-Melder, Repairs-Plattform
+> und Gerätegesundheits-Checks). Meilenstein 2 hat sich geteilt: seine
+> **Steuerungs**-Hälfte — Virtual Components auf eigenen Geräten über OAuth
+> schalten — ist gebaut und wartet auf das nächste Release, seine ursprüngliche
+> **Push**-Hälfte ist gemessen, enger als angenommen und nicht gebaut. Details
+> im jeweiligen Abschnitt.
 
 ### Meilenstein 0 — Grundlage  ✅
 
@@ -155,54 +159,83 @@ Ausdrücklich dokumentierte Einschränkungen, die User kennen müssen:
   pinnt auf die aktuelle v1-Endpunkt-Form und reagiert auf Änderungen
   reaktiv.
 
-### Meilenstein 2 — OAuth + WebSocket-Realtime  🔄 (gebaut, wird umgebaut)
+### Meilenstein 2 — OAuth: Cloud-Steuerung für eigene Geräte, danach Push  🔄 (Steuerung gebaut, Push nicht)
 
-**Ziel:** Push-basierte Realtime-Updates für User, die bereit sind, sich
-mit Mail + Passwort zu authentifizieren statt (oder zusätzlich zum)
-`auth_key`.
+**Das Ziel, neu formuliert.** Dieser Meilenstein startete als „Realtime-Push".
+Ihn zu messen hat die Überschrift geändert. Push erwies sich als eng — dieselbe
+OAuth-Sitzung erschließt dafür etwas, das die dokumentierte API überhaupt nicht
+kann: auf ein Gerät zu **schreiben**. Der Meilenstein hat deshalb jetzt zwei
+Hälften, und die wertvolle ist nicht mehr die, nach der er benannt ist.
 
-> **Stand und ein wichtiger Befund.** OAuth-Flow und WebSocket-Client sind
-> implementiert und gegen einen echten Account verifiziert — aber dieser
-> Meilenstein ist **nicht released**. Die Recherche im Juli 2026 hat
-> gezeigt, dass Cloud-Realtime-Push deutlich enger ist als angenommen:
->
-> - Push **funktioniert** für Geräte, die dem Account **gehören**
->   (Sub-Sekunden-Latenz, ohne explizites Subscribe).
-> - Push funktioniert **nicht** für Geräte, die dem Account nur **geteilt**
->   wurden — also genau für den Fall, für den es diese Integration gibt.
->   Status-Requests auf ein geteiltes Gerät antworten mit `WRONG_ID`,
->   Subscribe-Versuche mit `BAD_REQUEST`, und passives Mithören liefert
->   überhaupt keine Frames.
-> - Batteriegeräte und BLU-Geräte schlafen und pushen deshalb nie —
->   unabhängig davon, wem sie gehören.
->
-> Realtime kann das Polling also nicht ersetzen, sondern nur **davor**
-> sitzen. Ausgeliefert wird daher Push für eigene Geräte plus automatischer
-> Poll-Fallback für geteilte und schlafende — das Versprechen an den User
-> lautet damit "schneller wo möglich, nie schlechter". Eine Rückfrage dazu
-> läuft bei Shelly; falls Push für geteilte Geräte absichtlich nicht
-> verfügbar ist, bleibt der Fallback dauerhaft.
+#### 2.1 Cloud-Steuerung für eigene Geräte — gebaut, noch in keinem Release
 
-Änderungen:
-- OAuth-Code-Flow im `config_flow.py` ergänzen:
-  `POST https://api.shelly.cloud/oauth/login` mit `email` +
-  `sha1(password)` + `client_id=shelly-diy` → `code` empfangen →
-  `POST https://<server>/oauth/auth` mit `code` → `access_token` empfangen.
-- `api/websocket.py` zurückholen (architekturbekannt aus der
-  Vor-Pivot-Integrator-API-Ära — die WSS-URL-Form ist identisch) und
-  OAuth-`access_token` als `t=`-URL-Parameter nutzen.
-- ~~Coordinator-Polling-Loop durch WebSocket-Event-Subscription ersetzen~~
-  Eine WebSocket-Event-Subscription (`Shelly:StatusOnChange`,
-  `Shelly:Online`, `Shelly:CommandResponse`) **vor** den
-  Coordinator-Polling-Loop setzen; das Polling bleibt als Fallback-Pfad für
-  geteilte und schlafende Geräte erhalten.
-- Access-Token-Lifecycle: Ablauf tracken, proaktiv refreshen, Fallback
-  auf Re-OAuth wenn Refresh scheitert.
-- Options-Flow: Umschalten zwischen Simple (auth_key / Polling) und Full
-  (OAuth / Realtime) ohne Neuinstallation.
+Auf `main` gemergt, standardmäßig aus, geht mit der nächsten Version raus. Was
+sie leistet und was sie kostet:
+
+- Manches, was ein Shelly kann, hat in der dokumentierten Cloud-Control-API
+  **keine Route**. Die Zonen eines Bewässerungscomputers oder der Boolean, den
+  ein Skript bereitstellt, sind *Virtual Components*: lesbar, nicht schreibbar.
+  Jede dokumentierte Schreib-Route antwortet „diese Route gibt es nicht" —
+  gemessen, mit einem funktionierenden `set/switch`-Aufruf auf demselben Gerät
+  als Gegenprobe.
+- Schreiben *geht* über dasselbe Cloud-WebSocket-Relay, das die Shelly-App
+  benutzt — ein generisches JRPC-Relay. `Boolean.Set` auf einer Virtual
+  Component hat darüber an echter Hardware funktioniert.
+- Das Relay routet **nur zu Geräten, die dem Konto gehören**. Ein geteiltes
+  Gerät wird mit `WRONG_ID` abgelehnt, und eine absichtlich kaputte ID bekommt
+  dieselbe Ablehnung — es ist also eine Routing-Grenze, kein Formatfehler.
+  Eigentum ist im Poll-Payload nirgends erkennbar, deshalb wird jedes Gerät mit
+  einer solchen Komponente einmal pro Sitzung (nie pro Poll) per
+  `Shelly.GetDeviceInfo` gefragt, und das Urteil steht in der Diagnose — „warum
+  hat mein Gerät keinen Schalter" soll aus einem Fehlerbericht beantwortbar
+  sein.
+- Der Kanal ist **undokumentiert**, und Shellys Support hat am 2026-07-27
+  klargestellt, dass undokumentierte Endpunkte nicht Teil der unterstützten API
+  sind. Deshalb ist die Steuerung **Opt-in und standardmäßig aus**.
+  Einschalten fragt nach der Kontoanmeldung, die das Relay braucht; das
+  Passwort wird einmal benutzt und nie gespeichert, gespeichert wird nur das
+  entstehende Token — und die Option wieder auszuschalten löscht es.
+- Der neue Schalter entsteht **neben** dem bestehenden schreibgeschützten
+  Sensor derselben Komponente, nie an seiner Stelle — ihn zu ersetzen würde
+  bestehende Automatisierungen stumm brechen.
+- Fehler sind laut. Ein abgelehnter Befehl wirft, statt Erfolg zu melden; der
+  Zustand danach kommt aus dem nächsten Poll statt aus einer optimistischen
+  Annahme; und wenn der Steuerkanal selbst weg ist, wird der Schalter
+  `unavailable`, statt bedienbar auszusehen.
+- **Der Poll bleibt unangetastet.** Mit ausgeschalteter Option ändert sich an
+  der Integration nichts: keine Anmeldung, keine zweite Verbindung, keine
+  Sonde, keine neue Entität.
+
+Offen ist noch die erste Ende-zu-Ende-Anmeldung an einer laufenden
+Installation. Der Relay-Aufruf selbst ist hardwarebelegt; der
+Home-Assistant-Weg drumherum ist noch von keinem Nutzer bestätigt — deshalb
+bleibt [Issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20)
+offen, bis sein Melder es an dem Bewässerungscomputer bestätigt, der die Arbeit
+ausgelöst hat.
+
+#### 2.2 Realtime-Push — gemessen und bewusst nicht die Überschrift
+
+Der OAuth-WebSocket streamt `Shelly:StatusOnChange` tatsächlich im
+Sub-Sekunden-Bereich, ganz ohne Subscribe-Frame — aber nur für Geräte, die dem
+Konto **gehören**. Für ein dem Konto nur **geteiltes** Gerät antworten
+Status-Requests mit `WRONG_ID`, Subscribe-Versuche mit `BAD_REQUEST`, und
+passives Mithören liefert überhaupt keine Frames. Batterie- und BLU-Geräte
+schlafen und pushen nie, unabhängig davon, wem sie gehören. Die Geräte-ID im
+Push-Frame ist dezimal, während das HTTP-Inventar hexadezimal ist;
+`dezimal == int(hex_mac, 16)` bildet beides aufeinander ab (BLE-gebrückte
+`XB…`-IDs bleiben auf beiden Seiten Zeichenketten).
+
+Die Folge, die die ursprüngliche Überschrift erledigt hat: der Poll ist **eine
+kontoweite Anfrage**, nicht eine pro Gerät. Solange auch nur ein geteiltes oder
+schlafendes Gerät existiert, fällt keine Anfrage weg — Push kann das
+Poll-Intervall *lockern*, nie den Poll ersetzen. Damit ist Push eine
+Latenzverbesserung vor einem unveränderten Poll: bauenswert, aber keine
+Überschrift. Gebaut ist er nicht.
 
 Nicht-Ziele in M2:
-- Per-Device-Webhook-Subscriptions (WebSocket liefert bereits alles).
+- Per-Device-Webhook-Subscriptions (das Relay liefert bereits alles).
+- Ein MQTT-Weg. Home Assistant bringt bereits eine MQTT-Integration mit; eine
+  zweite in dieser hier wäre doppelter Code mit der schlechteren Geschichte.
 
 ### Meilenstein 3 — HACS-Default-Store-Aufnahme  ✅
 
@@ -291,18 +324,21 @@ Account (Quelle: [Shelly Cloud Control API Docs, Getting Started](https://shelly
   Default-Poll. Für Wetterstation / Energie-Metering irrelevant; für
   Licht-Schalter-Feedback fühlt sich das gemütlich an.
 
-**Traffic-Profil in Meilenstein 2 (geplant, revidiert):**
-- Outbound-Poll-Traffic: **reduziert, nicht eliminiert.** Eigene Geräte am
-  Netzteil werden per Push bedient; geteilte sowie Batterie-/BLU-Geräte
-  werden weiterhin gepollt. Wie hoch der Steady-State-Wert am Ende liegt,
-  hängt also davon ab, welcher Anteil deiner Flotte geteilt ist. Eine
-  frühere Fassung dieses Dokuments versprach "0 Bytes Steady State" — das
-  war vor dem oben beschriebenen Shared-Device-Befund geschrieben und
-  schlicht falsch.
-- Latenz: **< 100 ms** State-Propagation für push-fähige Geräte;
-  für den Rest bleibt es bei der Poll-Latenz (p50 ≈ 2,5 s).
-- Kosten: Eine persistente WebSocket-Connection pro HA-Instanz; ein
-  OAuth-Re-Auth ungefähr alle 24 Stunden.
+**Traffic-Profil in Meilenstein 2 (zweimal revidiert — und die zweite
+Revision ist die wichtige):**
+- Outbound-Poll-Traffic: **Push reduziert ihn überhaupt nicht**, es sei denn,
+  du lockerst das Intervall selbst. Der Poll ist *eine kontoweite Anfrage*, die
+  alle Geräte auf einmal abdeckt; schon ein einziges geteiltes oder schlafendes
+  Gerät hält diese eine Anfrage nötig, es fällt also nichts weg. Was Push
+  einbringt, ist, dass ein *längeres* Poll-Intervall vertretbar wird — die
+  Ersparnis macht der Nutzer, nicht der Code. Eine frühere Fassung dieses
+  Dokuments versprach "0 Bytes Steady State", eine spätere "reduziert, nicht
+  eliminiert"; beide sind älter als diese Rechnung und beide waren falsch.
+- Latenz: **< 100 ms** für eigene Geräte am Netzteil; für geteilte und
+  schlafende bleibt es bei der Poll-Latenz (p50 ≈ 2,5 s).
+- Kosten: eine persistente WebSocket-Verbindung pro HA-Instanz plus ein
+  Token-Refresh etwa einmal täglich. Die Cloud-Steuerung zahlt diese Kosten
+  bereits, wenn sie eingeschaltet ist; Push käme ohne zweite Verbindung aus.
 
 ## Security und Datenhaltung
 
@@ -315,6 +351,8 @@ Account (Quelle: [Shelly Cloud Control API Docs, Getting Started](https://shelly
   invalidiert ihn serverseitig — das ist die vorgesehene
   Rotations-Methode.
 - Meilenstein 1 speichert weder Mail noch Passwort.
-- Meilenstein 2 (OAuth) sendet `sha1(passwort)` beim initialen Login an
-  `api.shelly.cloud/oauth/login`; der resultierende `access_token` wird
-  in `entry.data` gespeichert. Das Passwort selbst wird nie gespeichert.
+- Die Cloud-Steuerung (Meilenstein 2) sendet `sha1(passwort)` einmalig bei der
+  Anmeldung an `api.shelly.cloud/oauth/login`. In `entry.data` liegt danach der
+  entstandene Datensatz — Access-Token, Refresh-Token, Ablaufzeitpunkt — und
+  sonst nichts. Das Passwort selbst wird nie gespeichert, und die
+  Cloud-Steuerung wieder auszuschalten löscht den Datensatz.

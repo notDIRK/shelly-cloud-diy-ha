@@ -32,11 +32,15 @@ traceability only. No upstream merges are expected.
 
 Status key: ✅ done · 🔄 in progress · ⏳ planned · 💡 aspirational
 
-> **Where the project stands (2026-07-21, `v0.6.9`):** Milestones 0, 1 and 3
+> **Where the project stands (2026-09-05, `v0.11.0`):** Milestones 0, 1 and 3
 > are done — the integration is released, in the HACS default store, and has
 > grown well past the original M1 scope (Gen1/Gen2/Gen3 devices, BLU family,
-> energy monitoring, virtual components). Milestone 2 (OAuth + realtime) is
-> built but not shipped; see its section for the finding that is reshaping it.
+> energy monitoring, virtual components, an offline detector, a relay-fault
+> detector, a repairs platform and device health checks). Milestone 2 has
+> split: its **control** half — switching virtual components on owned devices
+> over OAuth — is built and waiting for the next release, while its original
+> **push** half is measured, narrower than assumed, and not built. See its
+> section.
 
 ### Milestone 0 — Foundation  ✅
 
@@ -140,51 +144,77 @@ Explicitly documented limitations users must know:
   — this integration pins to the v1 endpoint shape and tracks changes
   reactively.
 
-### Milestone 2 — OAuth + WebSocket realtime  🔄 (built, being reshaped)
+### Milestone 2 — OAuth: cloud control for owned devices, then push  🔄 (control built, push not)
 
-**Goal:** Push-based realtime updates for users willing to authenticate
-with email + password instead of (or in addition to) the `auth_key`.
+**Goal, restated.** This milestone started out as "realtime push". Measuring it
+changed the headline. Push turned out to be narrow, while the same OAuth
+session turned out to unlock something the documented API cannot do at all:
+**writing** to a device. So the milestone has two halves now, and the valuable
+one is no longer the one it was named after.
 
-> **Status and an important finding.** The OAuth flow and the WebSocket
-> client are implemented and verified against a live account, but this
-> milestone is **not released** — research in July 2026 showed that cloud
-> realtime push is narrower than assumed:
->
-> - Push **works** for devices the account **owns** (sub-second, no explicit
->   subscribe needed).
-> - Push does **not** work for devices **shared to** the account — the very
->   case this integration exists for. Status requests for a shared device
->   return `WRONG_ID`, subscribe attempts return `BAD_REQUEST`, and a
->   passive listen yields no frames at all.
-> - Battery-powered and BLU devices sleep and therefore never push,
->   regardless of ownership.
->
-> So realtime cannot replace polling — it can only sit **in front of** it.
-> The shipped design will be push for owned devices with an automatic
-> polling fallback for shared and sleeping ones, which means the user-facing
-> promise is "faster where possible, never worse". A clarification request
-> is open with Shelly; if push for shared devices is intentionally
-> unavailable, the fallback stays permanent.
+#### 2.1 Cloud control for owned devices — built, not yet in a release
 
-Changes:
-- Add OAuth code flow to `config_flow.py`:
-  `POST https://api.shelly.cloud/oauth/login` with `email` +
-  `sha1(password)` + `client_id=shelly-diy` → receive `code` →
-  `POST https://<server>/oauth/auth` with `code` → receive `access_token`.
-- Bring back `api/websocket.py` (architecturally reused from the
-  pre-pivot Integrator-API era — the WSS endpoint format is identical)
-  and use OAuth `access_token` as the `t=` URL parameter.
-- ~~Swap coordinator's polling loop for~~ **Put in front of the polling
-  loop** a WebSocket event subscription (`Shelly:StatusOnChange`,
-  `Shelly:Online`, `Shelly:CommandResponse`), with polling retained as the
-  fallback path for shared and sleeping devices.
-- Access-token lifecycle: track expiry, refresh proactively, fall back to
-  re-OAuth if refresh fails.
-- Options flow: let the user switch between Simple (auth_key / polling)
-  and Full (OAuth / realtime) modes without reinstalling.
+Merged to `main`, off by default, and going out with the next version. What it
+does, and what it costs:
+
+- Some things a Shelly can do have **no route** in the documented Cloud
+  Control API. An irrigation controller's zones, or the boolean a script
+  exposes, are *virtual components*: readable, not writable. Every documented
+  write route answers "no such route" — measured, with a known-good
+  `set/switch` call as the negative control on the same device.
+- They *can* be written over the same cloud WebSocket relay the Shelly app
+  uses, which is a generic JRPC relay. `Boolean.Set` on a virtual component
+  succeeded over it on real hardware.
+- The relay routes **only to devices the account owns**. A shared device is
+  refused with `WRONG_ID`, and a deliberately malformed id gets the identical
+  refusal — so this is a routing limit, not a formatting mistake. Ownership is
+  not visible anywhere in the poll payload, so each device carrying such a
+  component is probed once per session (never per poll) with
+  `Shelly.GetDeviceInfo`, and the verdict goes into diagnostics — "why does my
+  device have no switch" should be answerable from a bug report.
+- The channel is **undocumented**, and Shelly's support stated on 2026-07-27
+  that undocumented endpoints are not part of the supported API. It is
+  therefore **opt-in and off by default**. Switching it on asks for the account
+  sign-in the relay needs; the password is used once and never stored, only the
+  resulting token is, and turning the option off again deletes it.
+- The new switch is created **beside** the existing read-only sensor of the
+  same component, never instead of it — replacing it would silently break
+  automations already pointing at it.
+- Failures are loud. A rejected command raises instead of reporting success,
+  the state afterwards comes from the next poll rather than an optimistic
+  guess, and if the control channel itself is down the switch goes unavailable
+  rather than looking operable.
+- **The poll is untouched.** With the option off nothing about the integration
+  changes: no sign-in, no second connection, no probe, no new entity.
+
+Still open: a first end-to-end sign-in on a live installation. The relay call
+itself is hardware-proven; the Home Assistant path around it is not yet
+confirmed by a user, which is why [issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20)
+stays open until its reporter confirms it on the irrigation controller that
+prompted the work.
+
+#### 2.2 Realtime push — measured, and deliberately not the headline
+
+The OAuth WebSocket does stream `Shelly:StatusOnChange` sub-second, with no
+subscribe frame at all — but only for devices the account **owns**. For a
+device shared *to* the account, status requests answer `WRONG_ID`, subscribe
+attempts `BAD_REQUEST`, and a passive listen yields no frames whatsoever.
+Battery and BLU devices sleep and never push, regardless of ownership. The
+device id inside a push frame is decimal where the HTTP inventory is hex;
+`decimal == int(hex_mac, 16)` maps them (BLE-bridged `XB…` ids stay strings on
+both sides).
+
+The consequence that retired the original framing: the poll is **one
+account-wide request**, not one per device. So long as a single shared or
+sleeping device exists, no request falls away — push can *loosen* the poll
+interval, never remove it. That makes push a latency improvement layered in
+front of an unchanged poll, which is worth building and is not worth a
+headline. It is not built.
 
 Non-goals in M2:
-- Per-device webhook subscriptions (the WebSocket delivers everything).
+- Per-device webhook subscriptions (the relay delivers everything).
+- An MQTT path. Home Assistant already ships an MQTT integration; a second one
+  inside this one would be duplicated code with a worse story.
 
 ### Milestone 3 — HACS default-store submission  ✅
 
@@ -268,17 +298,20 @@ is real, which is why this project exists.
   poll interval. For weather station / energy metering use cases this is
   a non-issue; for light-switch feedback it can feel gentle.
 
-**Milestone 2 traffic profile (planned, revised):**
-- Outbound poll traffic: **reduced, not eliminated.** Owned, mains-powered
-  devices are served by push; shared and battery/BLU devices keep being
-  polled, so the steady-state figure depends on how much of your fleet is
-  shared. An earlier version of this document promised "0 bytes steady
-  state" — that was written before the shared-device finding above and was
-  wrong.
-- Latency: **< 100 ms** for state propagation on push-eligible devices;
-  unchanged poll latency (p50 ≈ 2.5 s) for the rest.
-- Cost: single persistent WebSocket connection per HA instance; one
-  OAuth re-auth roughly every 24 hours.
+**Milestone 2 traffic profile (revised twice, and the second revision matters):**
+- Outbound poll traffic: **push does not reduce it at all**, unless you choose
+  to loosen the interval. The poll is *one account-wide request* covering every
+  device at once, so a single shared or sleeping device keeps that one request
+  necessary and nothing falls away. What push buys is that a *longer* poll
+  interval becomes acceptable — a saving the user makes, not one the code
+  makes. An earlier version of this document promised "0 bytes steady state",
+  and a later one "reduced, not eliminated"; both predate that arithmetic and
+  both were wrong.
+- Latency: **< 100 ms** for owned, mains-powered devices; unchanged poll
+  latency (p50 ≈ 2.5 s) for shared and sleeping ones.
+- Cost: one persistent WebSocket connection per Home Assistant instance, plus
+  a token refresh roughly once a day. Cloud control already pays that cost
+  when it is switched on; push would add no second connection.
 
 ## Security and data handling
 
@@ -289,7 +322,8 @@ is real, which is why this project exists.
   cloud key**. Changing your Shelly password invalidates it
   server-side, which is the intended rotation mechanism.
 - Milestone 1 does not store email or password.
-- Milestone 2 (OAuth) sends `sha1(password)` to
-  `api.shelly.cloud/oauth/login` during the initial login; the resulting
-  `access_token` is stored in `entry.data`. The password itself is never
-  stored.
+- Cloud control (Milestone 2) sends `sha1(password)` to
+  `api.shelly.cloud/oauth/login` once, at sign-in. What `entry.data` holds
+  afterwards is the resulting record — access token, refresh token, expiry —
+  and nothing else. The password itself is never stored, and switching cloud
+  control back off deletes the record.
