@@ -79,18 +79,29 @@ account beyond the share they granted you.
 
 ### How it compares
 
-| Project | Auth | Realtime | Shared devices | Maintained |
-|---|---|---|---|---|
-| **`shelly-cloud-diy-ha`** *(this repo)* | `auth_key` (M1) / OAuth (M2) | HTTP poll 5 s → WebSocket push (M2) | ✅ | 🔄 active |
-| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | Integrator API token *(gated by Shelly — "licenses for personal use are not provided", so private users must apply and may be refused)* | WebSocket push | ❌ | ✅ |
-| [HA Core — official Shelly integration](https://www.home-assistant.io/integrations/shelly/) | Local LAN / mDNS | LAN push | ❌ *(remote / shared devices unreachable over LAN)* | ✅ |
-| [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Local LAN | LAN push | ❌ | ❌ **discontinued** per its README |
-| [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | Username/password *(reverse-engineered)* | HTTP polling | ? | ❌ last push 2019 |
-| [HA YAML Blueprint (2025)](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` | ❌ command-only, **no state read** | ? | ✅ |
+Reading down the **Reaches** column is the whole story: everything else on this
+list talks either to your LAN or to an API you have to be granted.
 
-No other maintained Home Assistant integration currently combines **Cloud
-Control API access**, **state reading**, **shared-device support**, and **Gen1 /
-Gen2 / BLE-gateway coverage** in one package. That is the gap this project closes.
+| Project | Reaches | Reads state | Switches | Virtual components | Maintained |
+|---|---|---|---|---|---|
+| **`shelly-cloud-diy-ha`** *(this repo)* | ☁️ your whole account — owned, **shared**, remote, BLU | ✅ | ✅ | ✅ *(opt-in)* | 🔄 active |
+| [HA Core — official Shelly](https://www.home-assistant.io/integrations/shelly/) | 🏠 your LAN only | ✅ | ✅ | ✅ | ✅ |
+| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | ☁️ Integrator API ¹ | ✅ | ✅ | ❌ | ✅ |
+| [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | 🏠 your LAN only | ✅ | ✅ | ❌ | ❌ discontinued |
+| [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | ☁️ user + password | ✅ | ✅ | ❌ | ❌ last push 2019 |
+| [HA YAML blueprint (2025)](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | ☁️ `auth_key` | ❌ | ✅ | ❌ | ✅ |
+
+¹ Gated by Shelly: *"licenses for personal use are not provided"* — private
+users have to apply and can be refused. This project exists because that door
+is closed; the Cloud Control API it uses instead is self-service.
+
+No other maintained integration combines cloud access, state reading,
+shared-device support and Gen1 / Gen2 / BLU coverage in one package. That is the
+gap this project closes.
+
+**Use the official integration wherever you can.** It is local, faster, and it
+keeps working when your internet does not. This one is for the Shellys it
+cannot see — and the two run side by side.
 
 ---
 
@@ -104,6 +115,8 @@ Gen2 / BLE-gateway coverage** in one package. That is the gap this project close
 | ⚡ **Stuck-contact warning** | Warns when a relay reports itself as open while the device's own meter still sees a load — a welded contact (see below). | ✅ shipped |
 | 🩺 **Health checks** | Warns when a device runs hot, its Wi-Fi signal is weak, or it is short of memory or storage — from data the poll already returns, at no extra request (see below). | ✅ shipped |
 | 🎛️ **Cloud control** | Switches for virtual components — an irrigation controller's zones, a script's boolean — that the documented API cannot write at all. Off by default, rides an **unsupported** channel, and works only on devices your account owns (see below). | 🧪 opt-in |
+| 📶 **BLU gateway signal** | The signal the bridging gateway reports for a Bluetooth device — the only signal figure a BLU sensor has, with the gateway's id as an attribute. | ✅ shipped |
+| 🆙 **Firmware update flag** | Tells you a Gen2+ device has an update waiting, with the offered version. A flag, not an installer. | ✅ shipped |
 | 📈 **Energy history import** | Imports historical energy data into Home Assistant long-term statistics. | ✅ shipped |
 | ⚙️ **Config + options flow** | Paste your `auth_key`; tune the poll interval and per-device enablement later. | ✅ shipped |
 | 🌍 **Localised UI** | English and German translations for every user-visible string. | ✅ shipped |

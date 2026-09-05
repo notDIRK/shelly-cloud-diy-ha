@@ -83,19 +83,31 @@ Freigabe, die er dir erteilt hat.
 
 ### Vergleich
 
-| Projekt | Auth | Realtime | Shared Devices | Gepflegt |
-|---|---|---|---|---|
-| **`shelly-cloud-diy-ha`** *(dieses Repo)* | `auth_key` (M1) / OAuth (M2) | HTTP-Poll 5 s → WebSocket-Push (M2) | ✅ | 🔄 aktiv |
-| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | Integrator-API-Token *(von Shelly reglementiert — „licenses for personal use are not provided", Privat-User müssen einen Antrag stellen und können abgelehnt werden)* | WebSocket-Push | ❌ | ✅ |
-| [HA Core — offizielle Shelly-Integration](https://www.home-assistant.io/integrations/shelly/) | Lokal per LAN / mDNS | LAN-Push | ❌ *(entfernte / geteilte Geräte übers LAN nicht erreichbar)* | ✅ |
-| [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | Lokal per LAN | LAN-Push | ❌ | ❌ **eingestellt** laut eigener README |
-| [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | Username/Passwort *(reverse-engineered)* | HTTP-Polling | ? | ❌ letzter Commit 2019 |
-| [HA-YAML-Blueprint (2025)](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | `auth_key` | ❌ nur Commands, **kein State-Read** | ? | ✅ |
+Die Spalte **Erreicht** ist die ganze Geschichte: alles andere auf dieser Liste
+spricht entweder mit deinem LAN oder mit einer API, für die du eine Freigabe
+brauchst.
 
-Aktuell gibt es **keine gepflegte Home-Assistant-Integration**, die
-**Cloud-Control-API-Zugriff**, **State-Lesen**, **Shared-Device-Support** und
-**Gen1- / Gen2- / BLE-Gateway-Abdeckung** in einem Paket vereint. Genau diese
-Lücke schließt dieses Projekt.
+| Projekt | Erreicht | Liest Status | Schaltet | Virtuelle Komponenten | Gepflegt |
+|---|---|---|---|---|---|
+| **`shelly-cloud-diy-ha`** *(dieses Repo)* | ☁️ dein ganzes Konto — eigene, **geteilte**, entfernte, BLU | ✅ | ✅ | ✅ *(Opt-in)* | 🔄 aktiv |
+| [HA Core — offizielle Shelly-Integration](https://www.home-assistant.io/integrations/shelly/) | 🏠 nur dein LAN | ✅ | ✅ | ✅ | ✅ |
+| [`engesin/shelly-integrator-ha`](https://github.com/engesin/shelly-integrator-ha) | ☁️ Integrator-API ¹ | ✅ | ✅ | ❌ | ✅ |
+| [`StyraHem/ShellyForHASS`](https://github.com/StyraHem/ShellyForHASS) | 🏠 nur dein LAN | ✅ | ✅ | ❌ | ❌ eingestellt |
+| [`vincenzosuraci/hassio_shelly_cloud`](https://github.com/vincenzosuraci/hassio_shelly_cloud) | ☁️ Benutzer + Passwort | ✅ | ✅ | ❌ | ❌ letzter Commit 2019 |
+| [HA-YAML-Blueprint (2025)](https://community.home-assistant.io/t/controlling-shelly-cloud-devices-in-home-assistant/928462) | ☁️ `auth_key` | ❌ | ✅ | ❌ | ✅ |
+
+¹ Von Shelly reglementiert: *„licenses for personal use are not provided"* —
+Privatpersonen müssen einen Antrag stellen und können abgelehnt werden. Genau
+weil diese Tür zu ist, gibt es dieses Projekt; die Cloud Control API, die es
+stattdessen nutzt, ist Self-Service.
+
+Es gibt keine andere gepflegte Integration, die Cloud-Zugriff, Status-Lesen,
+geteilte Geräte und Gen1- / Gen2- / BLU-Abdeckung in einem Paket vereint. Genau
+diese Lücke schließt dieses Projekt.
+
+**Nimm die offizielle Integration, wo immer du kannst.** Sie ist lokal,
+schneller, und sie läuft weiter, wenn dein Internet ausfällt. Diese hier ist für
+die Shellys, die sie nicht sieht — und beide laufen nebeneinander.
 
 ---
 
@@ -109,6 +121,8 @@ Lücke schließt dieses Projekt.
 | ⚡ **Warnung bei klebendem Kontakt** | Meldet, wenn ein Relais sich als offen meldet, während die geräteeigene Messung weiter eine Last sieht — ein verschweißter Kontakt (siehe unten). | ✅ ausgeliefert |
 | 🩺 **Gesundheitsprüfung** | Meldet, wenn ein Gerät heiß läuft, sein WLAN-Signal schwach ist oder ihm Speicher ausgeht — aus Daten, die der Abruf ohnehin liefert, ohne eine einzige zusätzliche Anfrage (siehe unten). | ✅ ausgeliefert |
 | 🎛️ **Cloud-Steuerung** | Schalter für virtuelle Komponenten — die Zonen eines Bewässerungscomputers, der Boolean eines Skripts —, die die dokumentierte API überhaupt nicht schreiben kann. Standardmäßig aus, läuft über einen **nicht unterstützten** Kanal und funktioniert nur auf Geräten, die deinem Konto gehören (siehe unten). | 🧪 Opt-in |
+| 📶 **BLU-Gateway-Signal** | Das Signal, das das brückende Gateway für ein Bluetooth-Gerät meldet — die einzige Signalzahl, die ein BLU-Sensor hat, mit der Gateway-ID als Attribut. | ✅ ausgeliefert |
+| 🆙 **Firmware-Update-Kennzeichen** | Zeigt, dass für ein Gen2+-Gerät ein Update bereitliegt, mit der angebotenen Version. Ein Hinweis, kein Installer. | ✅ ausgeliefert |
 | 📈 **Energie-Verlaufsimport** | Importiert historische Energiedaten in die Home-Assistant-Langzeitstatistik. | ✅ ausgeliefert |
 | ⚙️ **Config- + Options-Flow** | `auth_key` einfügen; Poll-Intervall und Geräte-Auswahl später anpassen. | ✅ ausgeliefert |
 | 🌍 **Lokalisierte UI** | Englische und deutsche Übersetzungen für jeden sichtbaren Text. | ✅ ausgeliefert |
