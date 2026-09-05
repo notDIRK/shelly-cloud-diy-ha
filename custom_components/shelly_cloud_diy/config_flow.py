@@ -917,6 +917,23 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             _LOGGER.info(
                 "Cloud control switched off; the stored Shelly sign-in was deleted"
             )
-        if data != self.config_entry.data:
+        data_changed = data != self.config_entry.data
+        if data_changed:
             self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+
+        # A fresh sign-in with the options left exactly as they were reloads
+        # nothing on its own, and the entry would sit with a valid token and a
+        # dead channel until the next restart. Neither write reaches a
+        # listener: the data write is correctly ignored because the options
+        # did not change, and Home Assistant fires no listener at all for an
+        # options write that changes nothing.
+        #
+        # This is reachable, not theoretical — it is exactly what happens when
+        # a token is rejected and the user re-signs-in through Options instead
+        # of through the repair card, which is the case the sign-in step
+        # exists for.
+        if data_changed and dict(self.config_entry.options) == options:
+            self.hass.config_entries.async_schedule_reload(
+                self.config_entry.entry_id
+            )
         return self.async_create_entry(title="", data=options)

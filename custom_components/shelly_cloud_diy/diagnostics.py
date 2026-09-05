@@ -135,6 +135,12 @@ def _cloud_control_diagnostics(
     # definite ones: "we could not tell" is a state that resolves itself on
     # the next probe, and reading it as a verdict is the exact mistake the
     # coordinator refuses to make.
+    #
+    # ⚠ ``unclassified`` counts only devices a probe already answered
+    # inconclusively. A device that appeared after setup has no verdict and
+    # has not been asked yet, so it is missing from this block entirely until
+    # the re-probe loop reaches it — up to fifteen minutes. Read a device
+    # absent from ``verdicts`` as "not asked yet", not as "not owned".
     verdicts.update({fingerprint(device_id): "unknown" for device_id in unresolved})
 
     return {

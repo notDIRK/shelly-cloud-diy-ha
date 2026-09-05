@@ -754,13 +754,16 @@ def _flow_hass(entry: Any) -> Any:
             config_entry.data = dict(kwargs["data"])
         updates.append(kwargs)
 
+    reloads: list[str] = []
     return SimpleNamespace(
         config_entries=SimpleNamespace(
             async_get_known_entry=lambda entry_id: entry,
             async_get_entry=lambda entry_id: entry,
             async_update_entry=_update,
+            async_schedule_reload=reloads.append,
         ),
         updates=updates,
+        reloads=reloads,
     )
 
 
@@ -1051,3 +1054,87 @@ def _run_switch_setup(coordinator: ShellyCloudCoordinator) -> list[Any]:
     finally:
         switch_platform.async_dispatcher_connect = original
     return added
+
+
+# ── Regressions found in review, after the feature was already written ──
+
+
+def test_a_failed_setup_cannot_strand_the_relay() -> None:
+    """Two teardown paths, because neither one covers both failures.
+
+    Home Assistant never calls a component's ``async_unload_entry`` for an
+    entry that is not LOADED — ``ConfigEntry.async_unload`` short-circuits —
+    so a setup that raises after the channel is up would leave the socket,
+    its reconnect ladder and the ownership loop running forever, refreshing
+    a token for an entry that never came up. The on-unload callback covers
+    that for the ``ConfigEntry*`` failures; it does NOT cover the generic
+    exception branch, which is the only one Home Assistant does not process
+    on-unload callbacks for. Hence both, and hence a static test: this is a
+    positional property no behavioural test of a working setup can see.
+    """
+    tree = ast.parse(textwrap.dedent(inspect.getsource(integration.async_setup_entry)))
+    dumped = ast.dump(tree)
+
+    assert "async_on_unload" in dumped and "async_disable_cloud_control" in dumped, (
+        "setup must register the channel teardown as an on-unload callback"
+    )
+
+    handlers = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ExceptHandler)
+        and "async_disable_cloud_control" in ast.dump(node)
+    ]
+    assert handlers, (
+        "the rest of setup must be wrapped so the generic-exception branch, "
+        "where Home Assistant runs no on-unload callbacks, still closes the "
+        "channel"
+    )
+    # The handler must re-raise: swallowing here would report a broken entry
+    # as set up.
+    assert any(
+        isinstance(node, ast.Raise) and node.exc is None
+        for handler in handlers
+        for node in ast.walk(handler)
+    ), "the handler must re-raise, not swallow the setup failure"
+
+
+def test_a_fresh_sign_in_with_unchanged_options_still_reloads() -> None:
+    """Writing a token that nothing acts on is the same as not writing it.
+
+    Reachable, not theoretical: when a token is rejected the entry keeps
+    ``cloud_control: True`` with no usable credential, and a user who signs
+    in again through Options rather than the repair card changes no option at
+    all. Neither write reaches a listener then — the data write is correctly
+    ignored because the options did not change, and Home Assistant fires no
+    listener for an options write that changes nothing — so without an
+    explicit reload the entry would sit with a valid token and a dead channel
+    until the next restart.
+    """
+    entry = _Entry({CONF_CLOUD_CONTROL: True})
+    del entry.data[CONF_OAUTH_TOKEN]  # the state a rejected session leaves
+    flow = _options_flow(entry)
+    flow._pending_token = OAuthToken(
+        access_token=FAKE_ACCESS, expires_at=9e9, refresh_token=FAKE_REFRESH
+    )
+
+    flow._save(dict(entry.options))
+
+    assert CONF_OAUTH_TOKEN in entry.data, "the sign-in must be stored"
+    assert flow.hass.reloads == [entry.entry_id], (
+        "a stored sign-in that nothing reloads leaves the channel dead"
+    )
+
+
+def test_an_options_change_is_not_reloaded_twice() -> None:
+    """The explicit reload is only for the case no listener will cover."""
+    entry = _Entry({CONF_CLOUD_CONTROL: False})
+    flow = _options_flow(entry)
+    flow._pending_token = OAuthToken(
+        access_token=FAKE_ACCESS, expires_at=9e9, refresh_token=FAKE_REFRESH
+    )
+
+    # Options genuinely change, so the ordinary listener path reloads.
+    flow._save({CONF_CLOUD_CONTROL: True})
+
+    assert flow.hass.reloads == [], "the update listener already covers this"

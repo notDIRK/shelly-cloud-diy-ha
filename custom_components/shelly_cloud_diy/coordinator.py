@@ -1378,10 +1378,11 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         Devices bridged over Bluetooth are out for a harder reason: they
         speak no RPC of their own at all.
 
-        The list is taken once, at setup. A device that joins the account
-        later is classified on the next reload — and ticking a new device in
-        the options *is* a reload — rather than by a watcher that would have
-        to run for the lifetime of Home Assistant to catch a rare event.
+        The list is derived live on every call, not captured at setup. The
+        cloud omits devices from ``all_status`` routinely, so "not in the
+        snapshot at setup" is not the same as "not on the account", and a
+        device that turns up later must still be classified — which is what
+        the re-probe loop uses this for.
         """
         candidates = []
         for device_id, info in self.devices.items():

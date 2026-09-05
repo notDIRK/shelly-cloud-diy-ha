@@ -96,16 +96,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # See const.CONF_CLOUD_CONTROL.
     if coordinator.cloud_control:
         await _async_setup_cloud_control(hass, entry, coordinator)
+        # Registered IN ADDITION to the explicit teardown in
+        # ``async_unload_entry``, not instead of it, because the two cover
+        # different failures and neither covers both:
+        #
+        #   * ``async_unload_entry`` runs on a normal unload, including when
+        #     the platform unload then fails — the on-unload callbacks do not
+        #     run in that case (Home Assistant only processes them when the
+        #     unload succeeded).
+        #   * this callback runs when SETUP fails, where the component's
+        #     ``async_unload_entry`` is never called at all: an entry that is
+        #     not LOADED is short-circuited in ``ConfigEntry.async_unload``.
+        #
+        # Without it, a setup that raises below would leave the relay socket,
+        # its reconnect ladder and the ownership loop running for an entry
+        # that never came up — refreshing an OAuth token forever for nothing.
+        # ``async_disable_cloud_control`` is idempotent, so running twice is
+        # free.
+        entry.async_on_unload(coordinator.async_disable_cloud_control)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Historical-data service (local-gateway CSV flow, unchanged from
-    # pre-pivot). Kept here so existing users of the download service
-    # retain that capability through the pivot.
-    historical_service = HistoricalDataService(hass, coordinator, entry)
-    hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
-    await _register_services(hass, historical_service)
-    await historical_service.setup_auto_sync()
+        # Historical-data service (local-gateway CSV flow, unchanged from
+        # pre-pivot). Kept here so existing users of the download service
+        # retain that capability through the pivot.
+        historical_service = HistoricalDataService(hass, coordinator, entry)
+        hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
+        await _register_services(hass, historical_service)
+        await historical_service.setup_auto_sync()
+    except Exception:
+        # The one failure the callback above cannot catch: Home Assistant's
+        # generic setup handler is the only branch that does NOT process the
+        # on-unload callbacks, so an unexpected error here would otherwise
+        # strand the channel with nothing left to close it.
+        await coordinator.async_disable_cloud_control()
+        raise
 
     # Snapshot of the options as loaded, so the update listener can tell an
     # options change (reload) from an ``entry.data`` write (do not reload).
