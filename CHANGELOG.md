@@ -9,7 +9,7 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
-## Unreleased
+## v0.12.0 — 2026-09-05
 
 - **New: switching virtual components over the cloud — opt-in, and off by
   default.** An irrigation controller's zones and a script's boolean can be
@@ -37,6 +37,12 @@ which has no release pages.
   sign-in, no second connection, no probe, no new entity.
 - The poll, the offline detector, the relay-fault detector and the health
   checks are untouched by all of the above, and their tests pass unchanged.
+- Cloud control was confirmed end to end on real hardware before release: the
+  switch appears beside the read-only sensor, the command reaches the device
+  over the cloud in about two seconds (verified by a second, independent
+  integration watching the same device locally), and the entity's own state
+  follows from the next poll rather than from an assumption. Diagnostics
+  reported the device as owned and none unclassified.
 - **New: a Gateway signal sensor for Bluetooth (BLU) devices.** How well the
   bridging gateway hears the device — the only signal figure a BLU sensor has,
   present on every one of them and until now surfaced nowhere. Named after the

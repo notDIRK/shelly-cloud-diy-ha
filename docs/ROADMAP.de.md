@@ -167,10 +167,9 @@ OAuth-Sitzung erschließt dafür etwas, das die dokumentierte API überhaupt nic
 kann: auf ein Gerät zu **schreiben**. Der Meilenstein hat deshalb jetzt zwei
 Hälften, und die wertvolle ist nicht mehr die, nach der er benannt ist.
 
-#### 2.1 Cloud-Steuerung für eigene Geräte — gebaut, noch in keinem Release
+#### 2.1 Cloud-Steuerung für eigene Geräte — ausgeliefert in v0.12.0  ✅
 
-Auf `main` gemergt, standardmäßig aus, geht mit der nächsten Version raus. Was
-sie leistet und was sie kostet:
+Standardmäßig aus. Was sie leistet und was sie kostet:
 
 - Manches, was ein Shelly kann, hat in der dokumentierten Cloud-Control-API
   **keine Route**. Die Zonen eines Bewässerungscomputers oder der Boolean, den
@@ -206,12 +205,19 @@ sie leistet und was sie kostet:
   der Integration nichts: keine Anmeldung, keine zweite Verbindung, keine
   Sonde, keine neue Entität.
 
-Offen ist noch die erste Ende-zu-Ende-Anmeldung an einer laufenden
-Installation. Der Relay-Aufruf selbst ist hardwarebelegt; der
-Home-Assistant-Weg drumherum ist noch von keinem Nutzer bestätigt — deshalb
-bleibt [Issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20)
-offen, bis sein Melder es an dem Bewässerungscomputer bestätigt, der die Arbeit
-ausgelöst hat.
+Vor dem Release an echter Hardware bestätigt, an einer laufenden
+Home-Assistant-Installation gegen ein echtes Konto: der Schalter entsteht neben
+dem schreibgeschützten Sensor, der Befehl erreicht das Gerät in rund zwei
+Sekunden — gegengeprüft von einer zweiten, unabhängigen Integration, die
+dasselbe Gerät über das lokale Netz beobachtet — und der Zustand der Entität
+folgt aus dem nächsten Poll statt aus einer Annahme. Die Diagnose meldete das
+Gerät als eigenes, keines unklassifiziert. Eine Einschränkung deutlich gesagt:
+dieser Lauf meldete sich mit einem vorab erzeugten Token an, das
+Anmeldeformular selbst ist also durch Tests gedeckt, nicht durch diesen Lauf.
+
+[Issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20) bleibt
+trotzdem offen, bis sein Melder es an dem Bewässerungscomputer bestätigt, der
+die Arbeit ausgelöst hat — ein Gen3-Relais ist kein FK-06X.
 
 #### 2.2 Realtime-Push — gemessen und bewusst nicht die Überschrift
 

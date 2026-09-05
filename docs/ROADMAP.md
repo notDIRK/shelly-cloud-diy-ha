@@ -152,10 +152,9 @@ session turned out to unlock something the documented API cannot do at all:
 **writing** to a device. So the milestone has two halves now, and the valuable
 one is no longer the one it was named after.
 
-#### 2.1 Cloud control for owned devices — built, not yet in a release
+#### 2.1 Cloud control for owned devices — shipped in v0.12.0  ✅
 
-Merged to `main`, off by default, and going out with the next version. What it
-does, and what it costs:
+Off by default. What it does, and what it costs:
 
 - Some things a Shelly can do have **no route** in the documented Cloud
   Control API. An irrigation controller's zones, or the boolean a script
@@ -187,11 +186,18 @@ does, and what it costs:
 - **The poll is untouched.** With the option off nothing about the integration
   changes: no sign-in, no second connection, no probe, no new entity.
 
-Still open: a first end-to-end sign-in on a live installation. The relay call
-itself is hardware-proven; the Home Assistant path around it is not yet
-confirmed by a user, which is why [issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20)
-stays open until its reporter confirms it on the irrigation controller that
-prompted the work.
+Confirmed on hardware before release, on a live Home Assistant against a real
+account: the switch appears beside the read-only sensor, the command reaches
+the device in about two seconds — verified by a second, independent
+integration watching the same device over the local network — and the entity's
+own state follows from the next poll rather than from an assumption.
+Diagnostics reported the device as owned, none unclassified. One caveat stated
+plainly: that run signed in from a token minted beforehand, so the sign-in form
+itself is covered by tests rather than by that run.
+
+[Issue #20](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/20) stays
+open regardless, until its reporter confirms it on the irrigation controller
+that prompted the work — a Gen3 relay is not an FK-06X.
 
 #### 2.2 Realtime push — measured, and deliberately not the headline
 
