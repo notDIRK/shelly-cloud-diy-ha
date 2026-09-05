@@ -75,11 +75,15 @@ DEVICE_TO_REDACT = {"name", "cloud_name", "ssid", "sta_ip", "ip", "mac"}
 #
 # Deliberately NOT excluded, although both are tempting:
 #
-#   sys        carries uptime, RAM and filesystem headroom and the pending
-#              firmware version. None of it is an entity today, and that is
-#              a real gap the report should keep saying out loud.
-#   reporter   the bridging gateway's RSSI — on a BLU device it is the only
-#              signal figure there is, and it has no description at all.
+#   sys        carries uptime, RAM and filesystem headroom. The pending
+#              firmware version became an entity, but that entity claims no
+#              status key on purpose (see ShellyFirmwareUpdateBinarySensor):
+#              this report judges a top-level block whole, and the three
+#              readings above still surface nowhere.
+#   reporter   the bridging gateway's RSSI, and on a BLU device the only
+#              signal figure there is. Surfaced by the gateway signal sensor
+#              now — but only while the gateway reports a usable reading, so
+#              the key still has to be able to appear as a gap.
 STRUCTURAL_STATUS_KEYS = frozenset(
     {"_updated", "_dev_info", "serial", "ts", "id", "code"}
 )
@@ -299,7 +303,9 @@ def _coverage_diagnostics(
     set, and the answer is assembled from the entities they actually return.
     The two device-wide binary sensors (Reporting, Relay fault) are left out
     because they derive from no single status key and would only blur the
-    picture.
+    picture. The firmware flag is left out for the neighbouring reason: it
+    reads one field of ``sys`` and claiming the whole block would hide the
+    three readings in it that still produce nothing.
 
     Key NAMES only, never values — this block sits next to a redacted dump
     and must not become a way around it.

@@ -415,6 +415,25 @@ def _create_rpc_sensors(
                     coordinator, device_id, desc, 0, "cloud", "connected"
                 ))
 
+    # Firmware update — ``sys.available_updates``. A top-level, non-indexed
+    # key, read by name like ``cloud.connected`` above.
+    #
+    # Created whenever the field is a dict, INCLUDING an empty one: ``{}`` is
+    # the device saying it is current (11 of the 35 Gen2+ devices in the
+    # recorded account snapshot), which is a real "off" and not a missing
+    # reading. That is the opposite gate to the BLU signal sensor, and it is
+    # the shape of the field that decides which one applies.
+    sys_block = status.get("sys")
+    if isinstance(sys_block, dict) and isinstance(
+        sys_block.get("available_updates"), dict
+    ):
+        uid = f"{device_id}_firmware_update"
+        if uid not in created:
+            created.add(uid)
+            entities.append(
+                ShellyFirmwareUpdateBinarySensor(coordinator, device_id)
+            )
+
     # Virtual boolean components (READ-ONLY) — Gen2/Gen3 ``boolean:<id>.value``.
     # Exposed read-only for the same reason as the virtual sensors in sensor.py:
     # the cloud status carries no component config (writable-view / name) and the
@@ -432,6 +451,84 @@ def _create_rpc_sensors(
                     ))
 
     return entities
+
+
+class ShellyFirmwareUpdateBinarySensor(ShellyBaseEntity, BinarySensorEntity):
+    """Whether the device is offering a stable firmware update.
+
+    ⚠ The health *repair card* built on the very same field is opt-in and
+    off by default, and the difference is deliberate — do not harmonise the
+    two. 24 of the 35 Gen2+ devices in the measured account had an update
+    pending, so a card would be permanently lit on two thirds of a fleet and
+    would teach the user to ignore the card that also reports a device
+    cooking at 85 °C. An entity has the opposite property: it never
+    interrupts, it waits in the collapsed diagnostics section until someone
+    looks or writes an automation, and being "on" on 24 devices costs
+    nothing. Hence: card off by default, entity created by default.
+
+    Beta offers read ``off``. Nudging a user towards a beta build is not
+    what a default-on flag should do; the version is still reported as an
+    attribute, so the reading is not lost.
+
+    This is NOT the HA update platform: no install button, no release notes,
+    no version comparison. It is a diagnostic flag over a field the cloud
+    already hands us — flashing firmware stays with the native, local
+    integration.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.UPDATE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Firmware update"
+    # Stated rather than inherited, because it is the decision this class is
+    # about: unlike the Cloud sensor next to it, this reading is meaningful
+    # on every device that reports it, so it is registered enabled.
+    _attr_entity_registry_enabled_default = True
+    # No ``_status_key = "sys"`` on purpose. The diagnostics coverage report
+    # works at top-level-key granularity, so claiming ``sys`` here would mark
+    # the whole block covered while uptime, free RAM and free filesystem
+    # still produce no entity. Three real gaps would stop being reported to
+    # buy this one entity a mention.
+
+    def __init__(
+        self, coordinator: ShellyCloudCoordinator, device_id: str
+    ) -> None:
+        """Initialize the firmware update sensor."""
+        super().__init__(coordinator, device_id, 0)
+        self._attr_unique_id = f"{device_id}_firmware_update"
+
+    def _available_updates(self) -> dict[str, Any] | None:
+        """Return the ``sys.available_updates`` map, or None if unreadable."""
+        sys_block = self.device_status.get("sys")
+        if not isinstance(sys_block, dict):
+            return None
+        updates = sys_block.get("available_updates")
+        return updates if isinstance(updates, dict) else None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True while a stable firmware version is on offer."""
+        updates = self._available_updates()
+        if updates is None:
+            return None
+        stable = updates.get("stable")
+        return isinstance(stable, dict) and bool(stable.get("version"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the offered version — the number is the useful part.
+
+        "An update exists" cannot be acted on; "the offer here is 2.0.0,
+        while five other devices are only offered 1.7.5" can.
+        """
+        updates = self._available_updates()
+        if not updates:
+            return None
+        attributes: dict[str, Any] = {}
+        for channel in ("stable", "beta"):
+            entry = updates.get(channel)
+            if isinstance(entry, dict) and entry.get("version"):
+                attributes[f"{channel}_version"] = entry["version"]
+        return attributes or None
 
 
 class RpcVirtualBinarySensor(ShellyBaseEntity, BinarySensorEntity):

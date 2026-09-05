@@ -243,10 +243,21 @@ none:
 typical account most devices have one; a card that is permanently lit is a card
 you stop reading, including on the day it reports a device cooking at 85 °C.
 
-Every Gen2+ device also gets a **Wi-Fi signal** sensor (diagnostic category), and
-device diagnostics carry a *coverage* section naming the parts of a device's
-payload that still produce no entity — so a gap turns up in a bug report instead
-of waiting for someone to notice it.
+Alongside the card, three diagnostic entities surface readings that were in the
+data all along and went nowhere:
+
+- **Wi-Fi signal** on every Gen2+ device.
+- **Gateway signal** on every Bluetooth (BLU) device — how well the bridging
+  gateway hears it. Named after the gateway on purpose: a BLU sensor has no
+  radio figure of its own, so a poor reading may mean the gateway is in the
+  wrong place rather than the sensor.
+- **Firmware update**, a flag on every Gen2+ device that reports one, with the
+  offered version as an attribute. It is a flag, not an installer — flashing
+  firmware stays with the local integration.
+
+Device diagnostics also carry a *coverage* section naming the parts of a
+device's payload that still produce no entity, so a gap turns up in a bug report
+instead of waiting for someone to notice it.
 
 The whole check has an off switch in the options.
 
