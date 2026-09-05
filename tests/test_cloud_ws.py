@@ -48,6 +48,10 @@ FAKE_TOKEN = "FAKE-ACCESS-TOKEN-do-not-log-55555555"  # noqa: S105
 ACCOUNT_HOST = "shelly-42-eu.shelly.cloud"
 SERVER_URI = f"https://{ACCOUNT_HOST}"
 DEVICE_ID = "5432044e0001"
+# What the relay is addressed with: the same MAC as a decimal integer. The hex
+# form is refused with WRONG_ID, i.e. with the code that otherwise means "this
+# session does not own the device" — measured live on 2026-09-05.
+DEVICE_ID_ON_THE_WIRE = str(int(DEVICE_ID, 16))
 
 _REAL_SLEEP = asyncio.sleep
 _CLOSE = object()
@@ -177,7 +181,8 @@ def test_a_command_round_trip_returns_the_rpc_result():
         {
             "event": "Shelly:JrpcRequest",
             "trid": 1,
-            "deviceId": DEVICE_ID,
+            # Decimal, not the hex the caller passed — see _relay_device_id.
+            "deviceId": DEVICE_ID_ON_THE_WIRE,
             "method": "Boolean.Set",
             "params": {"id": 200, "value": True},
         }
@@ -617,3 +622,65 @@ def test_the_host_is_normalised_from_whatever_the_entry_stored(server_uri):
 def test_relay_error_codes_are_reduced_to_something_short(error, expected):
     """The code goes into an exception message, so it is capped, not trusted."""
     assert cloud_ws._relay_error_code(error) == expected  # noqa: SLF001
+
+
+# ── The device id the relay routes on ───────────────────────────────────────
+
+
+def test_the_relay_is_addressed_with_the_decimal_mac_not_the_hex_one():
+    """The bug this guards: every device classified as "not yours".
+
+    The integration keys devices on the hex MAC the HTTP inventory returns. The
+    relay routes on that MAC as a decimal integer and refuses the hex form with
+    ``WRONG_ID`` — the same code it uses for a device the session does not own.
+    Sending the hex form therefore does not fail loudly; it produces a
+    plausible, wrong verdict for *every* device, and no control entity is ever
+    built. Measured live: hex refused, decimal answered, bogus decimal refused.
+    """
+
+    async def scenario():
+        ws = _FakeWebSocket(_answer({"id": "shelly1pmminig3-5432044e0001"}))
+        client = _client(_FakeSession(lambda _: ws))
+        await client.connect()
+        await client.send_jrpc_request(DEVICE_ID, "Shelly.GetDeviceInfo")
+        await client.disconnect()
+        return ws.sent[0]["deviceId"]
+
+    assert asyncio.run(scenario()) == DEVICE_ID_ON_THE_WIRE
+    assert DEVICE_ID_ON_THE_WIRE != DEVICE_ID
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("5432044e0001", "92573797318657"),  # hex MAC → decimal
+        ("5432044E0001", "92573797318657"),  # case does not matter
+        ("XB277409423391452", "XB277409423391452"),  # BLE ids stay strings
+        ("92573797318657", "92573797318657"),  # already the wire form
+        ("", ""),  # nothing to convert, nothing to guess
+        ("shelly1pmminig3-5432044e0001", "shelly1pmminig3-5432044e0001"),
+    ],
+)
+def test_only_a_bare_hex_mac_is_converted(given: str, expected: str):
+    """Anything that is not a 12-digit hex MAC passes through untouched."""
+    assert cloud_ws._relay_device_id(given) == expected  # noqa: SLF001
+
+
+def test_ownership_verdicts_are_asked_with_the_wire_form_too():
+    """The probe must ask the same way a command does.
+
+    Asking with one form and commanding with another would classify a device
+    as owned and then fail every command against it, or the reverse.
+    """
+
+    async def scenario():
+        ws = _FakeWebSocket(_answer({"id": "shelly1pmminig3-5432044e0001"}))
+        client = _client(_FakeSession(lambda _: ws))
+        await client.connect()
+        verdict = await client.async_classify_ownership(DEVICE_ID)
+        await client.disconnect()
+        return verdict, ws.sent[0]["deviceId"]
+
+    verdict, sent_id = asyncio.run(scenario())
+    assert verdict is DeviceOwnership.OWNED
+    assert sent_id == DEVICE_ID_ON_THE_WIRE

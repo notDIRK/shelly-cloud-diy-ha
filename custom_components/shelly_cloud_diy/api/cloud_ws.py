@@ -28,9 +28,12 @@ Ownership
 ---------
 The relay refuses to route to devices the session does not own, answering
 ``WRONG_ID``. That is measured, and it is measured *with* a negative control:
-deliberately malformed device ids return the identical error, which refutes the
-"you formatted the id wrongly" reading. It is the only known runtime ownership
-signal — no field in any cloud payload carries ownership — so
+a deliberately bogus device id in the **same** form returns the identical
+error. The qualifier matters and was learned the hard way — the first negative
+control used a differently *formatted* id, which proved nothing, because a
+wrongly formatted id is refused with exactly this code too (see
+``_relay_device_id``). The two readings are only separable by holding the form
+fixed and varying the device. It is the only known runtime ownership signal — no field in any cloud payload carries ownership — so
 :meth:`ShellyCloudWebSocket.async_classify_ownership` sends one cheap
 ``Shelly.GetDeviceInfo`` and reads the answer. ``WRONG_ID`` is a verdict about a
 device, not a fault in the transport, and is never treated as one.
@@ -67,6 +70,7 @@ import contextlib
 import json
 import logging
 import random
+import re
 import time
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
@@ -118,6 +122,18 @@ _CLOSE_CODE_TOKEN_BROKEN = 4401
 # An error code goes into exception messages, so it is capped rather than
 # trusted: it arrives from the wire.
 _MAX_ERROR_CODE_LEN = 64
+
+# Wire fact, measured 2026-09-05 on a live account: the relay addresses a
+# device by its MAC **as a decimal integer**, not by the hex string the HTTP
+# inventory is keyed on. The two forms are not interchangeable and the relay
+# does not say so — a hex id is refused with the same ``WRONG_ID`` it uses for
+# a device the session does not own, so the wrong form reads exactly like
+# "you do not own this". Measured on one owned device: ``ecda3bc59ec8`` and
+# ``ECDA3BC59EC8`` both WRONG_ID, ``260422049832648`` answered with the
+# device's own info; a bogus decimal (``281474976710655``) was refused, which
+# is the negative control that keeps this from being "decimal ids are simply
+# never refused".
+_HEX_MAC_RE = re.compile(r"^[0-9a-fA-F]{12}$")
 
 # Keys whose values must be scrubbed before a frame reaches a log line.
 _REDACT_KEYS = frozenset(
@@ -200,6 +216,27 @@ class DeviceOwnership(StrEnum):
     OWNED = "owned"
     NOT_ROUTABLE = "not_routable"
     UNKNOWN = "unknown"
+
+
+def _relay_device_id(device_id: str) -> str:
+    """Translate an inventory device id into the form the relay routes on.
+
+    The rest of the integration keys everything on the id the HTTP inventory
+    returns — a hex MAC for Wi-Fi devices, ``XB`` + a decimal for the
+    Bluetooth-bridged ones. The relay wants the MAC as a decimal integer, and
+    only for the hex form: an ``XB…`` id is a string on both sides, and an id
+    that already is decimal must pass through untouched so a caller that has
+    the relay's own form is not mangled.
+
+    Converting here rather than at the call sites is deliberate. This is the
+    one place a frame is built, and an id that reached the wire in the wrong
+    form would come back as ``WRONG_ID`` — indistinguishable from "this
+    account does not own the device", which is a verdict the integration
+    stores and shows to the user.
+    """
+    if _HEX_MAC_RE.match(device_id):
+        return str(int(device_id, 16))
+    return device_id
 
 
 def _relay_error_code(error: Any) -> str:
@@ -590,7 +627,7 @@ class ShellyCloudWebSocket:
         frame = {
             "event": "Shelly:JrpcRequest",
             "trid": trid,
-            "deviceId": device_id,
+            "deviceId": _relay_device_id(device_id),
             "method": method,
             "params": params or {},
         }
