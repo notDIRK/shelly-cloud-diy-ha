@@ -11,7 +11,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, EntityCategory
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfElectricPotential,
+)
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
 from .const import DOMAIN, SIGNAL_DEVICE_REMOVED, device_gen, is_gen2_status
@@ -709,6 +714,22 @@ class BlockSensor(ShellyBaseEntity, SensorEntity):
         return value
 
 
+def _usable_rssi(value: Any) -> int | float | None:
+    """Return a signal reading, or ``None`` when the radio reported none.
+
+    Two shapes mean "no measurement" and both would otherwise become an
+    entity: a missing or null reading, and a non-negative one — a receiver
+    that has not heard the transmitter yet reports ``0``, which as dBm would
+    read as a perfect link. ``bool`` is rejected for the same reason
+    ``device_health._as_number`` rejects it: a ``bool`` is an ``int`` in
+    Python, so a payload carrying ``rssi: true`` would otherwise be treated
+    as a number rather than as the malformed reading it is.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if value < 0 else None
+
+
 def _create_ble_sensors(
     device_id: str,
     status: dict[str, Any],
@@ -777,6 +798,28 @@ def _create_ble_sensors(
                         coordinator=coordinator, device_id=device_id
                     )
                 )
+
+    # reporter.rssi — the bridging gateway's view of this device. A top-level
+    # block, so it is read by name rather than through the ``<type>:<channel>``
+    # scan above, the same way the Gen2 builder reads ``wifi.rssi``.
+    #
+    # Present on 29 of 29 gateway-bridged devices in the recorded account
+    # snapshot (-43 … -84 dBm), and it is the only signal figure a BLU device
+    # has at all. The health checks have been reading it since they were
+    # written; nothing ever surfaced it — the same gap as ``wifi.rssi``.
+    #
+    # Gated on a usable reading rather than on the key, because the block is
+    # also there before the gateway has heard the beacon.
+    reporter = status.get("reporter")
+    if isinstance(reporter, dict) and _usable_rssi(reporter.get("rssi")) is not None:
+        uid = f"{device_id}_ble_reporter_rssi"
+        if uid not in created:
+            created.add(uid)
+            entities.append(
+                BleReporterSignalSensor(
+                    coordinator=coordinator, device_id=device_id
+                )
+            )
 
     return entities
 
@@ -946,3 +989,65 @@ class BleBatteryVoltageSensor(ShellyBaseEntity, SensorEntity):
         if not isinstance(battery, dict):
             return None
         return battery.get("V")
+
+
+class BleReporterSignalSensor(ShellyBaseEntity, SensorEntity):
+    """How well the bridging gateway hears this device (``reporter.rssi``).
+
+    Named after the gateway on purpose. A BLU sensor has no IP link and no
+    radio figure of its own; what the cloud carries is the *receiver's* view
+    of the beacon. An entity called plain "Signal" sitting next to a battery
+    reading would be read as the sensor's own transmitter, and a user acting
+    on a bad number would move the wrong device.
+
+    Deliberately not an entry in ``BLE_SENSORS``: that table is keyed by the
+    component type of a ``<type>:<channel>`` key and is consumed by a loop
+    over exactly those keys, so a ``reporter`` entry could never be reached
+    from it. This follows the two battery sensors above instead, which are
+    the other readings whose shape the table cannot express.
+    """
+
+    _attr_name = "Gateway signal"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # See BleBatteryPercentSensor: declared so the diagnostics coverage
+    # report can tell that ``reporter`` is a surfaced key and not a gap.
+    _status_key = "reporter"
+
+    def __init__(
+        self,
+        *,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id, 0)
+        self._attr_unique_id = f"{device_id}_ble_reporter_rssi"
+
+    @property
+    def native_value(self) -> int | float | None:
+        """Return the gateway's current signal reading for this device."""
+        reporter = self.device_status.get("reporter")
+        if not isinstance(reporter, dict):
+            return None
+        # Same filter the builder gates on, so a link that stops being
+        # measurable reads as unknown rather than as a perfect 0 dBm.
+        return _usable_rssi(reporter.get("rssi"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Name the gateway the reading was taken at.
+
+        One gateway relays for many BLU devices, and a device can be picked
+        up by a different one after a move or a reboot — so a poor reading
+        is only actionable together with the identity of the receiver that
+        took it. It is free: the id sits in the same block as the value.
+        """
+        reporter = self.device_status.get("reporter")
+        if not isinstance(reporter, dict):
+            return None
+        gateway = reporter.get("id")
+        if gateway is None:
+            return None
+        return {"gateway_id": str(gateway)}

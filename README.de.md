@@ -255,11 +255,22 @@ Auf einem typischen Konto hat die Mehrheit der Geräte eines offen; eine Karte,
 die dauerhaft leuchtet, ist eine Karte, die du nicht mehr liest — auch an dem
 Tag, an dem sie ein Gerät bei 85 °C meldet.
 
-Jedes Gen2+-Gerät bekommt außerdem einen **WLAN-Signal**-Sensor (Kategorie
-Diagnose), und die Geräte-Diagnose enthält einen *coverage*-Abschnitt, der
-benennt, welche Teile des Payloads bei uns noch gar keine Entität erzeugen — so
-taucht eine Lücke in einem Fehlerbericht auf, statt darauf zu warten, dass sie
-jemandem auffällt.
+Neben der Karte machen drei Diagnose-Entitäten Werte sichtbar, die die ganze
+Zeit in den Daten lagen und nirgends ankamen:
+
+- **WLAN-Signal** auf jedem Gen2+-Gerät.
+- **Gateway-Signal** auf jedem Bluetooth-Gerät (BLU) — wie gut das brückende
+  Gateway es hört. Bewusst nach dem Gateway benannt: ein BLU-Sensor hat keine
+  eigene Funkzahl, ein schlechter Wert kann also heißen, dass das Gateway falsch
+  steht, nicht der Sensor.
+- **Firmware-Update**, ein Kennzeichen auf jedem Gen2+-Gerät, das eines meldet,
+  mit der angebotenen Version als Attribut. Ein Kennzeichen, kein Installer —
+  das Flashen bleibt bei der lokalen Integration.
+
+Die Geräte-Diagnose enthält außerdem einen *coverage*-Abschnitt, der benennt,
+welche Teile des Payloads bei uns noch gar keine Entität erzeugen — so taucht
+eine Lücke in einem Fehlerbericht auf, statt darauf zu warten, dass sie jemandem
+auffällt.
 
 Die ganze Prüfung lässt sich in den Optionen abschalten.
 

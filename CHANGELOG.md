@@ -9,6 +9,21 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## Unreleased
+
+- **New: a Gateway signal sensor for Bluetooth (BLU) devices.** How well the
+  bridging gateway hears the device — the only signal figure a BLU sensor has,
+  present on every one of them and until now surfaced nowhere. Named after the
+  gateway deliberately: a poor reading may mean the gateway sits in the wrong
+  place rather than the sensor. The gateway's id rides along as an attribute,
+  because a device can be picked up by a different one after a move.
+- **New: a Firmware update flag on Gen2+ devices**, with the offered version as
+  an attribute. A diagnostic flag, not an installer — flashing firmware stays
+  with the local integration. Note this is deliberately not the same default as
+  the health card's firmware finding, which stays opt-in: an entity waits to be
+  looked at, a repair card interrupts, and on a typical account most devices
+  have an update pending.
+
 ## v0.11.0 — 2026-09-04
 
 - **New: a warning when a device is running hot, weak or short of memory.**

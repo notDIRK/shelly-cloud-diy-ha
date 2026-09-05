@@ -61,6 +61,18 @@ def _covered_gen2_status() -> dict[str, Any]:
     }
 
 
+def _ble_status() -> dict[str, Any]:
+    """A gateway-bridged payload with three surfaced keys and two that nothing reads."""
+    return {
+        "_dev_info": {"gen": "GBLE"},
+        "temperature:0": {"id": 0, "tC": 21.4},
+        "devicepower:0": {"id": 0, "battery": {"percent": 100, "V": None}},
+        "input:0": {"id": 0, "state": None, "percent": None, "errors": []},
+        "reporter": {"id": "146221729481748", "rssi": -71},
+        "packetid:0": {"id": 0, "packetid": 42},
+    }
+
+
 def _report(status: dict[str, Any]) -> dict[str, Any]:
     return _coverage_diagnostics(_FakeCoordinator(status), DEVICE_ID, status)
 
@@ -164,20 +176,33 @@ def test_ble_device_is_measured_against_the_ble_builders() -> None:
     absent from the BLE tables, so no entity is created for it — which is
     precisely what the report should say.
     """
-    status = {
-        "_dev_info": {"gen": "GBLE"},
-        "temperature:0": {"id": 0, "tC": 21.4},
-        "devicepower:0": {"id": 0, "battery": {"percent": 100, "V": None}},
-        "input:0": {"id": 0, "state": None, "percent": None, "errors": []},
-        "reporter": {"rssi": -71},
-        "packetid:0": {"id": 0, "packetid": 42},
-    }
+    status = _ble_status()
 
     report = _report(status)
 
     assert report["generation"] == "GBLE"
-    assert set(report["covered_keys"]) == {"temperature:0", "devicepower:0"}
-    assert report["uncovered_keys"] == ["input:0", "packetid:0", "reporter"]
+    assert set(report["covered_keys"]) == {
+        "temperature:0",
+        "devicepower:0",
+        "reporter",
+    }
+    assert report["uncovered_keys"] == ["input:0", "packetid:0"]
+
+
+def test_reporter_counts_as_coverage_only_while_it_reads() -> None:
+    """The BLU counterpart of the Wi-Fi case above.
+
+    ``reporter`` was the largest measured gap on the BLU side — present on
+    29 of 29 gateway-bridged devices and surfaced by nothing. It is covered
+    by the gateway signal sensor now, but only when the gateway actually
+    reports a reading: no entity is built for an unusable one, so the key
+    must go back to being a gap rather than silently counting as covered.
+    """
+    status = _ble_status()
+    assert "reporter" in _report(status)["covered_keys"]
+
+    status["reporter"]["rssi"] = None
+    assert "reporter" in _report(status)["uncovered_keys"]
 
 
 def test_no_status_value_ever_reaches_the_report() -> None:
