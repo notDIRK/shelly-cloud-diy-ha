@@ -47,6 +47,18 @@
           "bulk_action": "\"Alle anhaken\" oder \"Alle abwählen\" überschreibt beim Speichern die manuelle Liste unten. Mit \"Manuelle Auswahl\" zählt die Liste.",
           "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt."
         }
+      },
+      "reauth_cloud_control": {
+        "title": "Bei Shelly erneut anmelden (Cloud-Steuerung)",
+        "description": "Die Shelly Cloud hat die gespeicherte Anmeldung der Cloud-Steuerung abgelehnt. Melde dich mit deinem Shelly-Konto an, um die Steuerung virtueller Komponenten wiederherzustellen.\n\nDer Authorization cloud key ist ein anderes Credential und davon nicht betroffen — der Abruf lief die ganze Zeit weiter. Das Passwort wird einmal zur Anmeldung verwendet und nie gespeichert.",
+        "data": {
+          "email": "E-Mail des Shelly-Kontos",
+          "password": "Passwort des Shelly-Kontos"
+        },
+        "data_description": {
+          "email": "Die E-Mail-Adresse, mit der du dich in der Shelly-App anmeldest.",
+          "password": "Wird einmal zur Anmeldung verwendet und danach verworfen. Gespeichert wird nur das daraus entstehende Token."
+        }
       }
     },
     "error": {
@@ -54,7 +66,8 @@
       "invalid_auth": "Shelly Cloud hat den Authorization cloud key abgelehnt.",
       "invalid_gateway_url": "Die lokale Gateway-URL muss http(s) sein und darf nicht auf localhost zeigen.",
       "required": "Dieses Feld ist erforderlich.",
-      "unknown": "Unerwarteter Fehler — siehe Home-Assistant-Logs."
+      "unknown": "Unerwarteter Fehler — siehe Home-Assistant-Logs.",
+      "invalid_account": "Die Shelly Cloud hat diese E-Mail oder das Passwort abgelehnt."
     },
     "abort": {
       "already_configured": "Dieses Shelly-Konto ist bereits konfiguriert.",
@@ -73,7 +86,8 @@
           "relay_fault_detection": "Vor einem Relais warnen, das nicht mehr öffnet",
           "local_gateway_url": "Lokale Gateway-URL (optional, für historische EM-Daten)",
           "device_health_detection": "Vor Geräten in schlechtem Zustand warnen",
-          "device_health_firmware": "Ausstehendes Firmware-Update als Befund werten"
+          "device_health_firmware": "Ausstehendes Firmware-Update als Befund werten",
+          "cloud_control": "Virtuelle Komponenten über die Cloud steuern (nicht unterstützt)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Kleinere Werte fühlen sich flotter an, verbrauchen aber mehr von Shellys 1-req/s-Budget.",
@@ -81,7 +95,8 @@
           "relay_fault_detection": "Standardmäßig an. Beobachtet jeden Schaltkanal, der seinen eigenen Ausgang misst, und warnt, wenn das Relais sich als offen meldet, während weiterhin eine echte Last durch es fließt — ein verschweißter Kontakt. Abschalten, wenn ein Shelly in einer Wechselschaltung sitzt, wo der andere Schalter Strom durch die Messung schicken kann, obwohl das Relais wirklich offen ist.",
           "local_gateway_url": "Nur nötig, wenn ein lokales Shelly-Gateway für historische Energiedaten genutzt wird.",
           "device_health_detection": "Standardmäßig an. Wertet aus, was jeder Abruf ohnehin liefert: WLAN-Signal (Warnung ab -70 dBm, Fehler ab -85 dBm), Komponententemperatur (70 °C / 85 °C), freier Speicher und freier Dateisystem-Platz (unter 20 % / 10 %), ein noch ausstehender Neustart sowie jede Komponente, die selbst einen Fehler meldet. Das kostet keine zusätzlichen Anfragen. Bluetooth-Geräte (BLU) werden nur nach dem Signal beurteilt, das ihr Gateway für sie meldet, Gen1-Geräte gar nicht. Gewertet wird nur die Eigenwärme einer Komponente, nie ein externer Fühler am Add-on.",
-          "device_health_firmware": "Standardmäßig aus. Ergänzt „Firmware-Update verfügbar“ als Befund. Auf einem typischen Konto hat die Mehrheit der Geräte eines offen — eingeschaltet leuchtet die Karte deshalb dauerhaft, und genau das sorgt dafür, dass die wichtigen Befunde untergehen."
+          "device_health_firmware": "Standardmäßig aus. Ergänzt „Firmware-Update verfügbar“ als Befund. Auf einem typischen Konto hat die Mehrheit der Geräte eines offen — eingeschaltet leuchtet die Karte deshalb dauerhaft, und genau das sorgt dafür, dass die wichtigen Befunde untergehen.",
+          "cloud_control": "Standardmäßig aus — und vor dem Einschalten lesenswert. Virtuelle Komponenten (die Zonen eines Bewässerungscomputers, der Schalter eines Skripts) lassen sich über die dokumentierte Shelly-Cloud-API lesen, aber nicht schreiben: jede dokumentierte Route antwortet „diese Route gibt es nicht“. Schalten geht nur über einen **undokumentierten** Kanal, den der Shelly-Support am 27.07.2026 ausdrücklich als nicht unterstützt bezeichnet hat und der jederzeit ohne Ankündigung geändert oder abgeschaltet werden kann.\n\nWas es kostet: die Anmeldung an deinem Shelly-Konto (wird im nächsten Schritt abgefragt; das Passwort wird einmal verwendet und nie gespeichert) und eine zweite Verbindung zur Shelly Cloud.\n\nWas es bringt: je virtuellem Boolean einen Schalter — aber **nur auf Geräten, die deinem Konto gehören**. Ein geteiltes Gerät weist Shelly selbst ab, dafür entsteht kein Schalter. Der Schalter entsteht **zusätzlich** zum bestehenden schreibgeschützten Sensor derselben Komponente, nie an dessen Stelle, damit nichts kaputtgeht, was du darauf schon aufgebaut hast.\n\nDas Abschalten der Option löscht die gespeicherte Anmeldung wieder."
         }
       },
       "devices": {
@@ -107,10 +122,25 @@
           "bulk_action": "\"Alle anhaken\" oder \"Alle abwählen\" überschreibt beim Speichern die manuelle Liste unten. Mit \"Manuelle Auswahl\" zählt die Liste.",
           "enabled_devices": "Nur angehakte Geräte werden als Home-Assistant-Entities angelegt."
         }
+      },
+      "cloud_control": {
+        "title": "Bei Shelly anmelden (Cloud-Steuerung)",
+        "description": "Die Cloud-Steuerung braucht die Anmeldung an deinem Shelly-Konto, weil der genutzte Kanal ein Konto-Token akzeptiert und nicht den Authorization cloud key.\n\nDas Passwort wird einmal zur Anmeldung verwendet und **nie gespeichert** — gespeichert wird nur das daraus entstehende Token, und das Abschalten der Option löscht es wieder. Ohne erfolgreiche Anmeldung wird nichts gespeichert.",
+        "data": {
+          "email": "E-Mail des Shelly-Kontos",
+          "password": "Passwort des Shelly-Kontos"
+        },
+        "data_description": {
+          "email": "Die E-Mail-Adresse, mit der du dich in der Shelly-App anmeldest.",
+          "password": "Wird einmal zur Anmeldung verwendet und danach verworfen. Gespeichert wird nur das daraus entstehende Token."
+        }
       }
     },
     "error": {
-      "invalid_gateway_url": "Die lokale Gateway-URL muss http(s) sein und darf nicht auf localhost zeigen."
+      "invalid_gateway_url": "Die lokale Gateway-URL muss http(s) sein und darf nicht auf localhost zeigen.",
+      "invalid_account": "Die Shelly Cloud hat diese E-Mail oder das Passwort abgelehnt.",
+      "cannot_connect": "Die Shelly Cloud war nicht erreichbar. Prüfe die Server-URI und deine Internetverbindung.",
+      "required": "Dieses Feld ist erforderlich."
     }
   },
   "services": {

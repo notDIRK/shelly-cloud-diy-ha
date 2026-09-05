@@ -91,11 +91,17 @@ grep -rn "_LOGGER" custom_components/shelly_cloud_diy/ | grep -i "auth\|key\|tok
 ```
 
 **Nicht in die Diagnose-Datei.** Das Diagnose-Modul liest die gespeicherten
-Daten des Config-Eintrags gar nicht an; es exportiert nur den Geräte-Schnappschuss
-und die Fleet-Map, mit geschwärzten Namen, IPs, MACs und SSIDs. Die Datei ist
-rund 130 Zeilen lang, also kurz genug zum vollständigen Lesen:
-`custom_components/shelly_cloud_diy/diagnostics.py`. Das ist wichtig, weil
+*Daten* des Config-Eintrags gar nicht an — dort liegen die Zugangsdaten. Es
+berichtet die **Optionen** des Eintrags (Abrufintervall, welche Geräte du
+freigeschaltet hast, welche Prüfungen laufen), den Geräte-Schnappschuss und die
+Fleet-Map, mit geschwärzten Namen, IPs, MACs und SSIDs und mit Geräte-IDs, die
+auf einen nicht umkehrbaren Fingerabdruck reduziert sind. Das ist wichtig, weil
 Diagnose-Dateien genau das sind, was Leute an öffentliche Fehlerberichte hängen.
+
+```bash
+# Erwartet: nur Kommentare — keine Zeile, die die Daten wirklich liest.
+grep -n "entry.data" custom_components/shelly_cloud_diy/diagnostics.py
+```
 
 **Nicht an mich und an keinen Dritten.** Es gibt keine Telemetrie, keine
 Analytics, kein Crash-Reporting, kein „Nach-Hause-Telefonieren". Die Integration
@@ -130,6 +136,71 @@ Folgen musst du selbst abwägen:
 - wenn du ein Backup zur Fehlersuche weitergibst — an wen auch immer, mich
   eingeschlossen — geh davon aus, dass der Schlüssel mitgegangen ist, und wechsle
   ihn danach
+
+---
+
+## Das zweite Credential — nur wenn du die Cloud-Steuerung einschaltest
+
+Alles bisher Gesagte betrifft den Auth-Key, das einzige Credential einer
+Standard-Installation. Es gibt eine optionale Funktion, die ein zweites braucht,
+und die ist **aus, solange du sie nicht einschaltest**: die Cloud-Steuerung, die
+virtuelle Komponenten schaltet (etwa die Zonen eines Bewässerungscomputers), für
+die die dokumentierte API überhaupt keine Route hat. Was sie tut und warum der
+genutzte Kanal undokumentiert ist, steht in der README.
+
+Das Einschalten fragt nach **E-Mail und Passwort deines Shelly-Kontos**, weil
+der Kanal ein Konto-Token akzeptiert und nicht den Auth-Key. Also, in denselben
+Worten wie oben:
+
+**Das Passwort wird nie gespeichert, und nichts, was I/O macht, sieht es
+überhaupt.** Es wird direkt an der Eingabegrenze in den Digest verwandelt, den
+Shellys Login erwartet, und der Klartext endet dort. Das ist eine strukturelle
+Eigenschaft, kein Versprechen — eine einzige Funktion nimmt den Klartext, alle
+anderen nehmen den Digest:
+
+```bash
+# Sieben Treffer, davon nur zwei Code: die Funktion selbst in api/oauth.py und
+# die eine Aufrufstelle in config_flow.py. Die übrigen fünf sind Kommentare
+# und Docstrings, die dasselbe sagen wie dieser Abschnitt.
+grep -rn "sha1_password" custom_components/shelly_cloud_diy/
+```
+
+**Gespeichert wird das Token**, das die Anmeldung zurückgibt — in derselben
+Datei `core.config_entries` wie der Auth-Key, mit demselben Klartext-Vorbehalt.
+Das Abschalten der Option **löscht es**, das Entfernen der Integration ebenso.
+Das ist der Teil, den ich zusagen kann, weil er meiner ist. Ob ein Wechsel des
+Shelly-Konto-Passworts auch ein bereits ausgestelltes Token ungültig macht, ist
+Shellys Seite und habe ich nicht gemessen — verlass dich also nicht darauf. Der
+verlässliche Weg, es hier loszuwerden, ist das Abschalten der Option.
+
+**Wohin es geht:** drei Form-POSTs, alle an der Aufrufstelle in `api/oauth.py`
+mit `# CREDENTIAL:` markiert — der Login (an Shellys festen Login-Host), der
+Code-Tausch und der Refresh (beide an den Host deines eigenen Kontos, den die
+Login-Antwort selbst benennt). Dazu eine WebSocket-Verbindung an den Host deines
+Kontos, in `api/cloud_ws.py`.
+
+**Nicht ins Log und nicht in ein repr.** Die Token-Klassen überschreiben
+`__repr__`, damit ein Token nicht durch einen f-String oder einen Traceback
+ausgegeben werden kann; eingehende Frames werden vor jeder Debug-Logzeile
+geschwärzt; und kein `aiohttp`-Fehlerobjekt landet je in einer Meldung — dessen
+Text enthält die vollständige Anfrage-URL, und die trägt auf diesem Kanal das
+Token.
+
+**Nicht in die Diagnose.** Die Diagnose-Datei berichtet, ob die Cloud-Steuerung
+an ist, ob sie verbunden ist und ob Shelly für ein Gerät Befehle durchreicht.
+Kein Token, keine E-Mail, keine rohe Geräte-ID.
+
+**Der Schönheitsfehler, genauso offen wie der unten:** das Access-Token reitet
+als Query-Parameter in der WebSocket-Verbindungs-URL mit. So wird Shellys Relay
+adressiert, eine Header-Variante gibt es nicht. Die Abmilderungen sind dieselben
+wie beim Rollladen-Befehl unten — der Empfänger ist Shelly, von dem das Token
+stammt, und die Verbindung ist TLS-verschlüsselt — und der Rest ebenfalls: URLs
+werden großzügiger geloggt als Bodies, auf deren Servern, was ich nicht messen
+kann.
+
+Wenn du die Cloud-Steuerung nie einschaltest, existiert nichts davon in deiner
+Installation: es wird keine Anmeldung abgefragt, kein Token gespeichert und
+keine Verbindung geöffnet.
 
 ---
 
@@ -182,9 +253,12 @@ grep -rn "_auth_key" custom_components/shelly_cloud_diy/
 grep -rnE "session\.(get|post|request)|ws_connect" custom_components/shelly_cloud_diy/
 
 # 3. Jede fest eingetragene URL. Erwartet: Doku-Links aus Fehlermeldungen, die
-#    http/https-Schema-Behandlung in _normalise_base_url und das CSV-Gateway-
-#    Beispiel in einem Docstring. NICHT finden solltest du einen fest
-#    verdrahteten API-Host — die Serveradresse kommt immer aus deiner Konfiguration.
+#    http/https-Schema-Behandlung in _normalise_base_url, das CSV-Gateway-
+#    Beispiel in einem Docstring — und genau EINEN fest verdrahteten API-Host,
+#    api.shelly.cloud/oauth/login in api/oauth.py: Shellys fester Login-Endpunkt,
+#    der nur aufgerufen wird, wenn du die Cloud-Steuerung einschaltest. Nichts,
+#    was der Auth-Key anfasst, hat einen festen Host — für den Abruf kommt die
+#    Serveradresse immer aus deiner Konfiguration.
 grep -rnE "https?://" custom_components/shelly_cloud_diy/
 
 # 4. Beleg, dass der Schlüssel nicht in deinen Logs steht. Im HA-Konfig-

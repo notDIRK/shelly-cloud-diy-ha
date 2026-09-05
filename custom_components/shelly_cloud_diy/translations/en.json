@@ -47,6 +47,18 @@
           "bulk_action": "\"Tick all\" or \"Untick all\" overrides the manual list below on save. Pick \"Manual selection\" to keep the list as-is.",
           "enabled_devices": "Only ticked devices produce Home Assistant entities."
         }
+      },
+      "reauth_cloud_control": {
+        "title": "Sign in to Shelly again for cloud control",
+        "description": "Shelly Cloud rejected the stored sign-in that the cloud control channel uses. Sign in with your Shelly account to restore control of your virtual components.\n\nYour Authorization cloud key is a different credential and is unaffected — polling has kept running the whole time. The password is used once to sign in and is never stored.",
+        "data": {
+          "email": "Shelly account email",
+          "password": "Shelly account password"
+        },
+        "data_description": {
+          "email": "The email address you use in the Shelly app.",
+          "password": "Used once to sign in and then discarded. Only the resulting token is stored."
+        }
       }
     },
     "error": {
@@ -54,7 +66,8 @@
       "invalid_auth": "Shelly Cloud rejected the Authorization cloud key.",
       "invalid_gateway_url": "Local gateway URL must be http(s) and must not point at localhost.",
       "required": "This field is required.",
-      "unknown": "Unexpected error — see Home Assistant logs."
+      "unknown": "Unexpected error — see Home Assistant logs.",
+      "invalid_account": "Shelly Cloud rejected that email or password."
     },
     "abort": {
       "already_configured": "This Shelly account is already configured.",
@@ -73,7 +86,8 @@
           "relay_fault_detection": "Warn about a relay that no longer opens",
           "local_gateway_url": "Local gateway URL (optional, for EM historical data)",
           "device_health_detection": "Warn about devices in poor health",
-          "device_health_firmware": "Count a pending firmware update as a finding"
+          "device_health_firmware": "Count a pending firmware update as a finding",
+          "cloud_control": "Control virtual components over the cloud (unsupported)"
         },
         "data_description": {
           "poll_interval": "3–60 s. Lower values feel snappier but consume more of Shelly's 1 req/s rate-limit budget.",
@@ -81,7 +95,8 @@
           "relay_fault_detection": "On by default. Watches every switching channel that meters its own output and warns when the relay reports itself as open while a real load is still flowing through it — a contact that has welded shut. Turn this off if a Shelly of yours sits in a two-way circuit, where the other switch can push current through the meter while the relay is genuinely open.",
           "local_gateway_url": "Only needed if you use a local Shelly gateway to back-fill historical energy data.",
           "device_health_detection": "On by default. Interprets data every poll already returns: Wi-Fi signal (warning at -70 dBm, error at -85 dBm), component temperature (70 °C / 85 °C), free memory and free storage (under 20 % / 10 %), a restart the device is still waiting for, and any component reporting its own error. It costs no extra requests. Bluetooth (BLU) devices are judged only on the signal their gateway reports for them, and Gen1 devices are not judged at all. Only a component's own temperature counts, never an external Add-on probe.",
-          "device_health_firmware": "Off by default. Adds \"a firmware update is available\" as a finding. On a typical account most devices have one pending, so switching this on tends to keep the card permanently lit — which is exactly what stops you noticing the findings that matter."
+          "device_health_firmware": "Off by default. Adds \"a firmware update is available\" as a finding. On a typical account most devices have one pending, so switching this on tends to keep the card permanently lit — which is exactly what stops you noticing the findings that matter.",
+          "cloud_control": "Off by default, and worth reading before switching on. Virtual components (an irrigation controller's zones, a script's switch) can be read over the documented Shelly Cloud API but not written — every documented route answers \"no such route\". Switching them is possible only over an **undocumented** channel, which Shelly support declared unsupported on 2026-07-27 and can change or withdraw without notice.\n\nWhat it costs: your Shelly account sign-in (asked for on the next step; the password is used once and never stored) and a second connection to Shelly Cloud.\n\nWhat it gives you: a switch for each virtual boolean, but **only on devices your account owns**. A shared device is refused by Shelly itself, and no switch appears for it. The switch is created **in addition** to the existing read-only sensor of the same component, never instead of it, so nothing you have already built on that sensor breaks.\n\nSwitching this off again deletes the stored sign-in."
         }
       },
       "devices": {
@@ -107,10 +122,25 @@
           "bulk_action": "\"Tick all\" or \"Untick all\" overrides the manual list below on save.",
           "enabled_devices": "Only ticked devices produce Home Assistant entities."
         }
+      },
+      "cloud_control": {
+        "title": "Sign in to Shelly for cloud control",
+        "description": "Cloud control needs your Shelly account sign-in, because the channel it uses accepts an account token rather than the Authorization cloud key.\n\nThe password is used once to sign in and is **never stored** — only the resulting token is, and switching the option off again deletes it. Nothing is saved unless this sign-in succeeds.",
+        "data": {
+          "email": "Shelly account email",
+          "password": "Shelly account password"
+        },
+        "data_description": {
+          "email": "The email address you use in the Shelly app.",
+          "password": "Used once to sign in and then discarded. Only the resulting token is stored."
+        }
       }
     },
     "error": {
-      "invalid_gateway_url": "Local gateway URL must be http(s) and must not point at localhost."
+      "invalid_gateway_url": "Local gateway URL must be http(s) and must not point at localhost.",
+      "invalid_account": "Shelly Cloud rejected that email or password.",
+      "cannot_connect": "Could not reach Shelly Cloud. Check the server URI and your internet connection.",
+      "required": "This field is required."
     }
   },
   "services": {

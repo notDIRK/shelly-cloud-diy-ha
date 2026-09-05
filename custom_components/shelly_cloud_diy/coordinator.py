@@ -12,6 +12,7 @@ know about the raw HTTP shape.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
@@ -20,7 +21,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
@@ -35,7 +36,14 @@ from .api.cloud_control import (
     ShellyCloudError,
     ShellyCloudRateLimitError,
 )
+from .api.cloud_ws import (
+    DeviceOwnership,
+    ShellyCloudWebSocket,
+    ShellyCloudWsAuthError,
+)
 from .const import (
+    CLOUD_CONTROL_DEFAULT,
+    CONF_CLOUD_CONTROL,
     CONF_CREATE_ALL_INITIALLY,
     CONF_DEVICE_HEALTH_DETECTION,
     CONF_DEVICE_HEALTH_FIRMWARE,
@@ -47,10 +55,12 @@ from .const import (
     DEVICE_HEALTH_FIRMWARE_DEFAULT,
     DOMAIN,
     OFFLINE_AFTER_DEFAULT,
+    OWNERSHIP_REPROBE_INTERVAL_S,
     POLL_INTERVAL_DEFAULT,
     RELAY_FAULT_DETECTION_DEFAULT,
     SIGNAL_NEW_DEVICE,
     device_gen,
+    is_gen2_status,
 )
 from .device_health import (
     HealthFinding,
@@ -82,6 +92,11 @@ _V2_NAME_LOOKUP_GAP_S = 1.2
 # to decide which online devices need a one-time v2 config fetch so their
 # read-only virtual entities can render real names/units/options. (#9)
 _VIRTUAL_COMPONENT_KEY_RE = re.compile(r"^(number|enum|text|boolean):\d+$")
+
+# The only component this integration can WRITE over the cloud relay. Kept
+# separate from the read-only set above: everything there is rendered, only
+# a boolean can be set (``Boolean.Set``, the one write measured to work).
+_VIRTUAL_BOOLEAN_KEY_RE = re.compile(r"^boolean:(\d+)$")
 
 # ── Deep-sleep (battery) device freshness ─────────────────────────────
 #
@@ -438,6 +453,20 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # a device that dropped off the cloud at 84 °C is not cooler for
         # having stopped talking about it.
         self.device_health: dict[str, tuple[HealthFinding, ...]] = {}
+
+        # ── Cloud control (opt-in, OFF by default) ────────────────────
+        # Every field below stays inert unless the option is on: no
+        # transport is built, no probe runs, nothing is dispatched. That is
+        # the whole contract of the option — see const.CONF_CLOUD_CONTROL.
+        self._cloud_ws: ShellyCloudWebSocket | None = None
+        # device_id -> DEFINITE ownership verdict. Only ``OWNED`` and
+        # ``NOT_ROUTABLE`` are ever stored: an inconclusive probe is not a
+        # verdict about the device and must never harden into one.
+        self.device_ownership: dict[str, DeviceOwnership] = {}
+        # Devices the relay could not classify, kept apart from the verdicts
+        # above so they are re-asked rather than written off.
+        self._ownership_unresolved: set[str] = set()
+        self._ownership_task: asyncio.Task | None = None
 
     # ── Offline detection bookkeeping ─────────────────────────────────
 
@@ -1284,6 +1313,284 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         # Re-render entities with the real names/units/options straight away.
         self.async_update_listeners()
+
+    # ── Cloud control for owned devices (opt-in) ──────────────────────
+    #
+    # A second, undocumented channel that exists for exactly what the
+    # documented one cannot do: writing a virtual component. It is bolted on
+    # beside the poll, never into it — the poll stays the single source of
+    # state, and every detector built on it keeps reading the same data it
+    # was hardware-confirmed against.
+
+    @property
+    def cloud_control(self) -> bool:
+        """Whether the user opted this entry into the cloud control channel."""
+        return bool(self._options.get(CONF_CLOUD_CONTROL, CLOUD_CONTROL_DEFAULT))
+
+    @property
+    def cloud_control_connected(self) -> bool:
+        """Whether the relay connection is currently open."""
+        ws = self._cloud_ws
+        return ws is not None and ws.connected
+
+    def is_cloud_controllable(self, device_id: str) -> bool:
+        """Whether this device may be given a cloud control entity.
+
+        Three things have to hold at once, and the missing one is the answer
+        to "why has my device no switch": the option is on (there is a
+        transport), the relay answered for this device, and the answer was
+        that it will route to it. Anything less than a definite ``OWNED`` is
+        a no — including "we could not tell".
+        """
+        return (
+            self._cloud_ws is not None
+            and self.device_ownership.get(device_id) is DeviceOwnership.OWNED
+        )
+
+    @property
+    def cloud_control_unclassified(self) -> frozenset[str]:
+        """Devices the relay could not classify this session.
+
+        Exposed as its own reading rather than folded into the verdict map,
+        because it is the opposite of a verdict: it is the set that gets asked
+        again. Diagnostics reports it separately for the same reason.
+        """
+        return frozenset(self._ownership_unresolved)
+
+    def cloud_control_boolean_keys(self, device_id: str) -> list[str]:
+        """Virtual boolean keys on a device that cloud control may write."""
+        status = self.devices.get(device_id, {}).get("status") or {}
+        return sorted(
+            key
+            for key, value in status.items()
+            if _VIRTUAL_BOOLEAN_KEY_RE.match(key) and isinstance(value, dict)
+        )
+
+    def _control_candidates(self) -> list[str]:
+        """Enabled devices worth spending an ownership probe on.
+
+        The plan's wording is "once per enabled Gen2+ device"; this narrows
+        it to the Gen2+ devices that actually carry a virtual boolean, which
+        is the only component this slice can write. A device without one can
+        never gain a control entity whatever the relay answers, so probing it
+        would buy a diagnostics line for a relay round-trip — and on a
+        64-device account that is 60-odd round-trips at every startup.
+        Devices bridged over Bluetooth are out for a harder reason: they
+        speak no RPC of their own at all.
+
+        The list is derived live on every call, not captured at setup. The
+        cloud omits devices from ``all_status`` routinely, so "not in the
+        snapshot at setup" is not the same as "not on the account", and a
+        device that turns up later must still be classified — which is what
+        the re-probe loop uses this for.
+        """
+        candidates = []
+        for device_id, info in self.devices.items():
+            if not self.is_enabled(device_id):
+                continue
+            status = info.get("status") or {}
+            if device_gen(status) == "GBLE" or not is_gen2_status(status):
+                continue
+            if any(_VIRTUAL_BOOLEAN_KEY_RE.match(key) for key in status):
+                candidates.append(device_id)
+        return sorted(candidates)
+
+    async def async_enable_cloud_control(self, ws: ShellyCloudWebSocket) -> None:
+        """Connect the relay and classify the devices that could use it.
+
+        Raises whatever :meth:`ShellyCloudWebSocket.connect` raises. The
+        caller decides what a failure costs, and the answer there is: the
+        control entities, never the poll.
+        """
+        await ws.connect()
+        self._cloud_ws = ws
+        await self._async_probe_ownership(self._control_candidates())
+        self._async_schedule_ownership_reprobe()
+        verdicts = list(self.device_ownership.values())
+        _LOGGER.info(
+            "Cloud control connected to %s: %d device(s) owned, %d not routable, "
+            "%d unclassified",
+            ws.host,
+            verdicts.count(DeviceOwnership.OWNED),
+            verdicts.count(DeviceOwnership.NOT_ROUTABLE),
+            len(self._ownership_unresolved),
+        )
+
+    async def async_disable_cloud_control(self) -> None:
+        """Close the relay and drop the session's verdicts.
+
+        The verdicts go because they are exactly that — a statement about one
+        session with one account. Carrying them across a reload would let a
+        device keep a control entity built on an answer nobody asked for any
+        more.
+        """
+        task, self._ownership_task = self._ownership_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        ws, self._cloud_ws = self._cloud_ws, None
+        if ws is not None:
+            await ws.disconnect()
+        self.device_ownership.clear()
+        self._ownership_unresolved.clear()
+
+    async def _async_probe_ownership(self, device_ids: list[str]) -> set[str]:
+        """Ask the relay about each id; record only the definite answers.
+
+        Returns the ids that became owned in this pass, so a caller that ran
+        after startup can tell the platforms there is something new to build.
+
+        Ids with a standing verdict are skipped: the relay was asked once and
+        answered definitely, and asking again every quarter of an hour would
+        be traffic for an answer we hold.
+        """
+        ws = self._cloud_ws
+        if ws is None:
+            return set()
+
+        newly_owned: set[str] = set()
+        for index, device_id in enumerate(device_ids):
+            if device_id in self.device_ownership:
+                continue
+            try:
+                verdict = await ws.async_classify_ownership(device_id)
+            except ShellyCloudWsAuthError:
+                # The session is dead, which says nothing about any device.
+                # The transport has already asked for re-authentication; the
+                # rest of the list stays unresolved rather than being judged
+                # on a failure that is not theirs.
+                self._ownership_unresolved.update(device_ids[index:])
+                _LOGGER.warning(
+                    "Cloud control: the relay rejected the session while "
+                    "classifying devices; %d left unclassified",
+                    len(device_ids) - index,
+                )
+                break
+
+            if verdict is DeviceOwnership.UNKNOWN:
+                self._ownership_unresolved.add(device_id)
+                continue
+            self._ownership_unresolved.discard(device_id)
+            self.device_ownership[device_id] = verdict
+            if verdict is DeviceOwnership.OWNED:
+                newly_owned.add(device_id)
+        return newly_owned
+
+    def _async_schedule_ownership_reprobe(self) -> None:
+        """Start the classification loop that runs behind the initial pass.
+
+        Registered on the config entry rather than on ``hass``, so Home
+        Assistant cancels it when the entry unloads even if the teardown
+        below never runs. A background task that outlives its entry is a
+        loop asking a relay that belongs to a session nobody holds any more.
+        """
+        if self._ownership_task is not None:
+            return
+        self._ownership_task = self._entry.async_create_background_task(
+            self.hass,
+            self._async_ownership_reprobe_loop(),
+            f"{DOMAIN} cloud control ownership re-probe",
+        )
+
+    def _unclassified_candidates(self) -> list[str]:
+        """Candidates with no standing verdict — the loop's work list.
+
+        Two kinds end up here, and the second is why this reads the live
+        device list instead of a set frozen at setup:
+
+        * a device the relay could not classify, and
+        * a device that was not a candidate yet when setup ran. The cloud
+          drops devices from ``/device/all_status`` on its own (that is the
+          measured behaviour the offline detector exists for) and an account
+          gains devices, so "the candidates at setup" is not a closed set.
+          Without this, such a device would have no verdict, no switch and —
+          worse — nothing in diagnostics saying so, until a reload.
+        """
+        return sorted(
+            device_id
+            for device_id in self._control_candidates()
+            if device_id not in self.device_ownership
+        )
+
+    async def _async_ownership_reprobe_loop(self) -> None:
+        """Keep asking about devices that have no verdict yet.
+
+        An unclassified device is the one state that must not persist:
+        usually the relay was down or busy when it was asked, and the honest
+        repair is to ask again once it is back rather than let "we could not
+        tell" quietly become "you do not own this".
+
+        A tick with nothing to ask about costs one wake-up and no traffic, so
+        the loop stays for the session rather than exiting when the account
+        happens to be fully classified — a device that appears afterwards has
+        to be picked up too, and the alternative is telling the user to
+        restart Home Assistant.
+        """
+        try:
+            while self._cloud_ws is not None:
+                await asyncio.sleep(OWNERSHIP_REPROBE_INTERVAL_S)
+                # Devices that left the account (or the user's selection) are
+                # no longer candidates; ``_unclassified_candidates`` derives
+                # from the live list, so they simply stop being asked about.
+                self._ownership_unresolved.intersection_update(
+                    d for d in self.devices if self.is_enabled(d)
+                )
+                ws = self._cloud_ws
+                if ws is None or not ws.connected:
+                    continue
+                pending = self._unclassified_candidates()
+                if not pending:
+                    continue
+                newly_owned = await self._async_probe_ownership(pending)
+                for device_id in newly_owned:
+                    # The same signal a rediscovered device fires. Every
+                    # platform already dedupes against its own bookkeeping,
+                    # so this builds the switch that could not be built at
+                    # setup and touches nothing else.
+                    async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, device_id)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._ownership_task = None
+
+    async def async_set_virtual_boolean(
+        self, device_id: str, component_key: str, value: bool
+    ) -> None:
+        """Set a virtual boolean on an owned device, over the cloud relay.
+
+        Never optimistic, and never quiet. The first consumer is an
+        irrigation controller, where the realistic failure is *the zone did
+        not switch*: a swallowed error there breaks a watering schedule and
+        looks exactly like success. So every failure raises
+        :class:`~homeassistant.exceptions.HomeAssistantError` (the transport's
+        own errors already are one) and surfaces in the UI and in automation
+        traces, and confirmation is asked of the poll rather than assumed.
+        """
+        ws = self._cloud_ws
+        if ws is None:
+            raise HomeAssistantError(
+                "Cloud control is not connected for this Shelly account"
+            )
+        if not self.is_cloud_controllable(device_id):
+            raise HomeAssistantError(
+                f"Shelly Cloud will not route commands to device {device_id}"
+            )
+        match = _VIRTUAL_BOOLEAN_KEY_RE.match(component_key)
+        if match is None:
+            raise HomeAssistantError(
+                f"{component_key} is not a virtual boolean component"
+            )
+
+        await ws.send_jrpc_request(
+            device_id,
+            "Boolean.Set",
+            {"id": int(match.group(1)), "value": bool(value)},
+        )
+        # Ask for the state instead of asserting it. An optimistic write is
+        # precisely what would hide a zone that accepted the command and did
+        # not move; the poll is what can tell the difference.
+        await self.async_request_refresh()
 
     # ── Command dispatch (compat shim for platform files) ─────────────
 

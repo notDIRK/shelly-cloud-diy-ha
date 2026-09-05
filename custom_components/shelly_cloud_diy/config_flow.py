@@ -14,8 +14,16 @@ User setup is a two-step flow:
    only want cloud-only devices materialised.
 
 Options flow exposes the poll interval, the optional local gateway URL
-for the historical-data service, and a mirror of the device-selection
-step so users can change their mind later.
+for the historical-data service, a mirror of the device-selection step so
+users can change their mind later, and the opt-in cloud control channel.
+
+Switching cloud control on adds a third step asking for the Shelly account
+sign-in, because the relay that channel uses accepts an OAuth token and
+nothing else. The password is hashed by ``oauth.sha1_password`` before it
+leaves the step and is never stored; the token that comes back is written
+to ``entry.data`` next to the ``auth_key``. Switching the option off again
+deletes that token — an unused credential kept "just in case" is a
+liability, and signing in again costs one form.
 """
 from __future__ import annotations
 
@@ -34,6 +42,9 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .api.cloud_control import (
@@ -42,13 +53,23 @@ from .api.cloud_control import (
     ShellyCloudError,
     ShellyCloudTransportError,
 )
+from .api.oauth import (
+    OAuthToken,
+    ShellyOAuthError,
+    ShellyOAuthTransportError,
+    login,
+    sha1_password,
+)
 from .const import (
+    CLOUD_CONTROL_DEFAULT,
     CONF_AUTH_KEY,
+    CONF_CLOUD_CONTROL,
     CONF_CREATE_ALL_INITIALLY,
     CONF_DEVICE_HEALTH_DETECTION,
     CONF_DEVICE_HEALTH_FIRMWARE,
     CONF_ENABLED_DEVICES,
     CONF_LOCAL_GATEWAY_URL,
+    CONF_OAUTH_TOKEN,
     CONF_OFFLINE_AFTER,
     CONF_POLL_INTERVAL,
     CONF_RELAY_FAULT_DETECTION,
@@ -62,10 +83,12 @@ from .const import (
     POLL_INTERVAL_DEFAULT,
     POLL_INTERVAL_MAX,
     POLL_INTERVAL_MIN,
+    REAUTH_CLOUD_CONTROL,
     RELAY_FAULT_DETECTION_DEFAULT,
 )
 from .entities.descriptions import get_model_name
 from .utils import validate_gateway_url
+from .utils.token_store import token_to_storage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,6 +108,58 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_LOCAL_GATEWAY_URL): str,
     }
 )
+
+
+# Fields of the Shelly account sign-in. ``CONF_PASSWORD`` never reaches
+# ``entry.data``: it is hashed at the boundary and the digest dies with the
+# login request (see ``api/oauth.py``).
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"  # noqa: S105 — a form field name, not a secret
+
+CLOUD_CONTROL_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_EMAIL): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.EMAIL, autocomplete="username")
+        ),
+        # A password field, so the browser masks it and does not offer to
+        # remember it as ordinary text. The value is hashed the moment the
+        # form is submitted and never stored either way, but a form that
+        # shows an account password in the clear invites the mistake.
+        vol.Required(CONF_PASSWORD): TextSelector(
+            TextSelectorConfig(
+                type=TextSelectorType.PASSWORD, autocomplete="current-password"
+            )
+        ),
+    }
+)
+
+
+async def _async_sign_in(
+    hass: Any, server_uri: str, user_input: dict[str, Any]
+) -> tuple[OAuthToken | None, dict[str, str]]:
+    """Sign in to the Shelly account and return ``(token, errors)``.
+
+    Shared by the options step that switches cloud control on and the reauth
+    step that renews it, so both treat the password identically: hashed here,
+    never stored, never logged, never carried in the flow's own state.
+    """
+    email = str(user_input.get(CONF_EMAIL, "")).strip()
+    password = str(user_input.get(CONF_PASSWORD, ""))
+    if not email:
+        return None, {CONF_EMAIL: "required"}
+    if not password:
+        return None, {CONF_PASSWORD: "required"}
+
+    session = async_get_clientsession(hass)
+    try:
+        token = await login(session, server_uri, email, sha1_password(password))
+    except ShellyOAuthTransportError:
+        return None, {"base": "cannot_connect"}
+    except ShellyOAuthError:
+        # Deliberately not logged with the server's own words: an OAuth error
+        # body can carry token material.
+        return None, {"base": "invalid_account"}
+    return token, {}
 
 
 def _build_device_options(
@@ -399,8 +474,52 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> FlowResult:
-        """HA triggers this when ConfigEntryAuthFailed is raised."""
+        """HA triggers this when a credential was rejected.
+
+        Two credentials can be rejected and both land here, so the caller
+        says which one it is (see ``__init__._start_cloud_control_reauth``).
+        Guessing would mean showing the Authorization-cloud-key form for a
+        spent Shelly sign-in, and the user pasting a perfectly good key into
+        it.
+        """
+        if isinstance(entry_data, dict) and entry_data.get(REAUTH_CLOUD_CONTROL):
+            return await self.async_step_reauth_cloud_control()
         return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_cloud_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Sign in to the Shelly account again for the cloud control channel.
+
+        Only the token is renewed. The ``auth_key`` the poll runs on is a
+        different credential and is not touched here — a user whose control
+        channel expired has no reason to go hunting for their cloud key.
+        """
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="reauth_entry_missing")
+
+        if user_input is not None:
+            token, errors = await _async_sign_in(
+                self.hass, entry.data[CONF_SERVER_URI], user_input
+            )
+            if token is not None:
+                # The one call that writes, reloads and ends the flow. Doing
+                # the three by hand leaves a written token behind if the
+                # reload raises — which it does for an entry that was
+                # disabled or removed while this form sat open.
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data={**entry.data, CONF_OAUTH_TOKEN: token_to_storage(token)},
+                    reason="reauth_successful",
+                )
+
+        return self.async_show_form(
+            step_id="reauth_cloud_control",
+            data_schema=CLOUD_CONTROL_SCHEMA,
+            errors=errors,
+        )
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -451,6 +570,15 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
         self._pending_devices: dict[str, dict[str, Any]] = {}
         self._pending_names: dict[str, str] = {}
         self._pending_base_options: dict[str, Any] = {}
+        # Set when the device refresh failed, so the sign-in step knows the
+        # device picker is being skipped and it has to commit itself.
+        self._skip_devices = False
+        # The token from a sign-in in this flow, held until the option that
+        # authorises it is saved. Writing it at the sign-in step would leave
+        # a Shelly ACCOUNT token in storage for a user who then closed the
+        # dialog at the device picker — with the option still off, and with
+        # the step's own text promising nothing had been saved.
+        self._pending_token: OAuthToken | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -494,6 +622,9 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                             DEVICE_HEALTH_FIRMWARE_DEFAULT,
                         )
                     ),
+                    CONF_CLOUD_CONTROL: bool(
+                        user_input.get(CONF_CLOUD_CONTROL, CLOUD_CONTROL_DEFAULT)
+                    ),
                 }
 
                 # Fetch the current fleet + names so the device-selection
@@ -514,10 +645,26 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                         "device selection stays as previously saved.",
                         err,
                     )
+                    # Saving replaces ``entry.options`` wholesale, so the
+                    # sentence above is only true if the selection is carried
+                    # across explicitly. Without this the user's curated list
+                    # is dropped, and the coordinator's "no explicit
+                    # selection" fallback then materialises every device the
+                    # account can see — because the cloud was briefly
+                    # unreachable.
+                    self._carry_device_selection()
+                    if self._needs_cloud_sign_in():
+                        self._skip_devices = True
+                        return await self.async_step_cloud_control()
                     return self._save(self._pending_base_options)
 
                 self._pending_devices = devices
                 self._pending_names = names
+                if self._needs_cloud_sign_in():
+                    # Ask before the device picker, not after: the sign-in is
+                    # what decides whether the option can be honoured at all,
+                    # and abandoning it must leave nothing half-saved.
+                    return await self.async_step_cloud_control()
                 return await self.async_step_devices()
 
         current_interval = int(
@@ -542,6 +689,9 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 CONF_DEVICE_HEALTH_FIRMWARE, DEVICE_HEALTH_FIRMWARE_DEFAULT
             )
         )
+        current_cloud_control = bool(
+            self.config_entry.options.get(CONF_CLOUD_CONTROL, CLOUD_CONTROL_DEFAULT)
+        )
 
         schema = vol.Schema(
             {
@@ -561,6 +711,9 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
                 ): bool,
                 vol.Required(
                     CONF_DEVICE_HEALTH_FIRMWARE, default=current_health_firmware
+                ): bool,
+                vol.Required(
+                    CONF_CLOUD_CONTROL, default=current_cloud_control
                 ): bool,
                 vol.Optional(
                     CONF_LOCAL_GATEWAY_URL, default=current_gw
@@ -699,6 +852,88 @@ class ShellyCloudDiyOptionsFlow(OptionsFlow):
             },
         )
 
+    def _carry_device_selection(self) -> None:
+        """Preserve the saved device selection when the picker is skipped."""
+        for key in (CONF_CREATE_ALL_INITIALLY, CONF_ENABLED_DEVICES):
+            if key in self.config_entry.options:
+                self._pending_base_options[key] = self.config_entry.options[key]
+
+    def _needs_cloud_sign_in(self) -> bool:
+        """Whether switching cloud control on still needs a Shelly sign-in."""
+        if not self._pending_base_options.get(CONF_CLOUD_CONTROL):
+            return False
+        return (
+            self._pending_token is None
+            and not self.config_entry.data.get(CONF_OAUTH_TOKEN)
+        )
+
+    async def async_step_cloud_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask for the Shelly account sign-in the control channel needs.
+
+        The password is hashed inside :func:`_async_sign_in` and never
+        returns from it; what is stored is the token. Abandoning this form
+        saves nothing at all, so the option cannot end up on without a way
+        to honour it.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            token, errors = await _async_sign_in(
+                self.hass, self.config_entry.data[CONF_SERVER_URI], user_input
+            )
+            if token is not None:
+                # Held, not written — see ``_pending_token``.
+                self._pending_token = token
+                if self._skip_devices:
+                    return self._save(self._pending_base_options)
+                return await self.async_step_devices()
+
+        return self.async_show_form(
+            step_id="cloud_control",
+            data_schema=CLOUD_CONTROL_SCHEMA,
+            errors=errors,
+        )
+
     def _save(self, options: dict[str, Any]) -> FlowResult:
-        """Persist options and return an empty-title entry so HA saves them."""
+        """Persist options — and the sign-in, or its deletion — in one place.
+
+        The credential is written here rather than in the step that obtained
+        it, so it is stored only together with the option that authorises it.
+        A flow the user abandons before this point saves nothing at all,
+        which is what the step's own text promises.
+
+        Switching cloud control off drops a stored token. Keeping an unused
+        account credential "in case they come back" is a liability with no
+        upside — the user who returns pays one form, and the user who left is
+        genuinely left with nothing of theirs held.
+        """
+        data = dict(self.config_entry.data)
+        if options.get(CONF_CLOUD_CONTROL):
+            if self._pending_token is not None:
+                data[CONF_OAUTH_TOKEN] = token_to_storage(self._pending_token)
+        elif data.pop(CONF_OAUTH_TOKEN, None) is not None:
+            _LOGGER.info(
+                "Cloud control switched off; the stored Shelly sign-in was deleted"
+            )
+        data_changed = data != self.config_entry.data
+        if data_changed:
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+
+        # A fresh sign-in with the options left exactly as they were reloads
+        # nothing on its own, and the entry would sit with a valid token and a
+        # dead channel until the next restart. Neither write reaches a
+        # listener: the data write is correctly ignored because the options
+        # did not change, and Home Assistant fires no listener at all for an
+        # options write that changes nothing.
+        #
+        # This is reachable, not theoretical — it is exactly what happens when
+        # a token is rejected and the user re-signs-in through Options instead
+        # of through the repair card, which is the case the sign-in step
+        # exists for.
+        if data_changed and dict(self.config_entry.options) == options:
+            self.hass.config_entries.async_schedule_reload(
+                self.config_entry.entry_id
+            )
         return self.async_create_entry(title="", data=options)

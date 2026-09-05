@@ -7,10 +7,13 @@ Entry point that:
 - Wires up the historical-data service (local-gateway flavour; unchanged
   from the pre-pivot code path).
 - Provides ghost-entity purging on device removal from the HA UI.
+- Brings up the opt-in cloud control channel (OAuth + the cloud
+  WebSocket relay) when — and only when — the user asked for it.
 
-The pre-pivot Integrator-API machinery (JWT token refresh, WebSocket
-client, consent-callback webhook) is intentionally absent here. Those
-move to Milestone 2 when OAuth + WebSocket land.
+Cloud control is a strictly additive second channel. The poll owns the
+state of every device and is untouched by it; the relay only ever carries
+commands the documented HTTP API has no route for. With the option off
+none of it is constructed.
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ from functools import partial
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -28,13 +31,17 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .api.cloud_control import ShellyCloudControl
+from .api.cloud_ws import ShellyCloudWebSocket
+from .api.oauth import OAuthToken, ShellyTokenManager
 from .const import (
     CONF_AUTH_KEY,
     CONF_CREATE_ALL_INITIALLY,
     CONF_ENABLED_DEVICES,
+    CONF_OAUTH_TOKEN,
     CONF_SERVER_URI,
     DOMAIN,
     PLATFORMS,
+    REAUTH_CLOUD_CONTROL,
     SIGNAL_DEVICE_REMOVED,
 )
 from .coordinator import ShellyCloudCoordinator
@@ -43,6 +50,7 @@ from .services.fleet_map import async_handle_fleet_map
 from .services.historical import HistoricalDataService
 from .services.orphans import async_handle_detect_orphans
 from .services.replace_device import async_handle_replace_device
+from .utils.token_store import token_from_storage, token_to_storage
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,32 +89,83 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # bookkeeping regardless of the underlying API).
     _purge_deleted_entities(hass, entry)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Opt-in, and inert unless opted in: with the option off nothing below
+    # runs, so there is no OAuth round-trip, no second connection, no probe
+    # and no control entity. The reading comes from the coordinator so the
+    # option has one interpretation, not one per module.
+    # See const.CONF_CLOUD_CONTROL.
+    if coordinator.cloud_control:
+        await _async_setup_cloud_control(hass, entry, coordinator)
+        # Registered IN ADDITION to the explicit teardown in
+        # ``async_unload_entry``, not instead of it, because the two cover
+        # different failures and neither covers both:
+        #
+        #   * ``async_unload_entry`` runs on a normal unload, including when
+        #     the platform unload then fails — the on-unload callbacks do not
+        #     run in that case (Home Assistant only processes them when the
+        #     unload succeeded).
+        #   * this callback runs when SETUP fails, where the component's
+        #     ``async_unload_entry`` is never called at all: an entry that is
+        #     not LOADED is short-circuited in ``ConfigEntry.async_unload``.
+        #
+        # Without it, a setup that raises below would leave the relay socket,
+        # its reconnect ladder and the ownership loop running for an entry
+        # that never came up — refreshing an OAuth token forever for nothing.
+        # ``async_disable_cloud_control`` is idempotent, so running twice is
+        # free.
+        entry.async_on_unload(coordinator.async_disable_cloud_control)
 
-    # Historical-data service (local-gateway CSV flow, unchanged from
-    # pre-pivot). Kept here so existing users of the download service
-    # retain that capability through the pivot.
-    historical_service = HistoricalDataService(hass, coordinator, entry)
-    hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
-    await _register_services(hass, historical_service)
-    await historical_service.setup_auto_sync()
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+        # Historical-data service (local-gateway CSV flow, unchanged from
+        # pre-pivot). Kept here so existing users of the download service
+        # retain that capability through the pivot.
+        historical_service = HistoricalDataService(hass, coordinator, entry)
+        hass.data[DOMAIN][f"{entry.entry_id}_historical"] = historical_service
+        await _register_services(hass, historical_service)
+        await historical_service.setup_auto_sync()
+    except Exception:
+        # The one failure the callback above cannot catch: Home Assistant's
+        # generic setup handler is the only branch that does NOT process the
+        # on-unload callbacks, so an unexpected error here would otherwise
+        # strand the channel with nothing left to close it.
+        await coordinator.async_disable_cloud_control()
+        raise
+
+    # Snapshot of the options as loaded, so the update listener can tell an
+    # options change (reload) from an ``entry.data`` write (do not reload).
+    hass.data[DOMAIN][f"{entry.entry_id}_options"] = dict(entry.options)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down a config entry cleanly."""
+    """Tear down a config entry cleanly.
+
+    The cloud control channel is closed here rather than through
+    ``entry.async_on_unload``, for the same reason the historical service is:
+    Home Assistant runs the on-unload callbacks only when the platform unload
+    *succeeded*. A failed unload would otherwise leave the relay socket, its
+    reconnect ladder and the ownership loop running — and the next reload
+    would build a second set on top of them.
+    """
     historical: HistoricalDataService | None = hass.data[DOMAIN].pop(
         f"{entry.entry_id}_historical", None
     )
     if historical:
         historical.cancel_auto_sync()
 
+    coordinator: ShellyCloudCoordinator | None = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator is not None:
+        # Idempotent: with cloud control off there is nothing to close.
+        await coordinator.async_disable_cloud_control()
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        hass.data[DOMAIN].pop(f"{entry.entry_id}_options", None)
     return unload_ok
 
 
@@ -126,7 +185,18 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload when the user changes poll interval / gateway URL."""
+    """Reload when the user changes poll interval / gateway URL.
+
+    Home Assistant fires this listener for a write to ``entry.data`` as well
+    as to ``entry.options``, and a refreshed OAuth token is a write to
+    ``entry.data``. Reloading for one would tear the poll down and rebuild
+    every entity because a background token rotation happened, so a change
+    that left the options identical is not a reason to reload.
+    """
+    previous = hass.data.get(DOMAIN, {}).get(f"{entry.entry_id}_options")
+    if previous is not None and previous == dict(entry.options):
+        _LOGGER.debug("Shelly Cloud DIY: entry data updated, options unchanged")
+        return
     _LOGGER.info("Shelly Cloud DIY: options changed, reloading")
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -149,6 +219,115 @@ def _migrate_to_v0_4_0(hass: HomeAssistant, entry: ConfigEntry) -> None:
         "Shelly Cloud DIY: migrated config entry to v0.4.0 — "
         "all devices remain enabled; use options flow to curate."
     )
+
+
+# ── Cloud control (opt-in) ──────────────────────────────────────────────
+
+
+@callback
+def _start_cloud_control_reauth(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Ask the user to sign in to Shelly again — for the token, not the key.
+
+    Both credentials fail into the same reauth flow, so the flow is told
+    which one is being asked for. Without the marker the user would be shown
+    the Authorization-cloud-key form for a rejected OAuth token and would
+    quite reasonably paste a perfectly good key into it.
+
+    Only the marker is passed. The flow reads nothing else out of it, and
+    handing a token to a flow context is how a token ends up in a place
+    nobody thought to check.
+    """
+    entry.async_start_reauth(hass, data={REAUTH_CLOUD_CONTROL: True})
+
+
+async def _async_setup_cloud_control(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: ShellyCloudCoordinator
+) -> None:
+    """Bring the cloud control channel up, or explain why it stayed down.
+
+    Never raises. The channel is an opt-in extra on top of an entry whose
+    real job is the poll: a relay that is unreachable, or an account whose
+    sign-in has expired, must cost the user their control entities and
+    nothing else. Both cases are logged, both are visible in diagnostics,
+    and an expired sign-in additionally asks for re-authentication.
+    """
+    token = token_from_storage(entry.data.get(CONF_OAUTH_TOKEN))
+    if token is None:
+        _LOGGER.warning(
+            "Cloud control is switched on but this entry holds no Shelly "
+            "sign-in; asking for one"
+        )
+        _start_cloud_control_reauth(hass, entry)
+        return
+
+    async def _persist_token(new_token: OAuthToken) -> None:
+        """Store a refreshed token — but only when it is worth a write.
+
+        Measured against a live account: the ``refresh_token`` does not
+        rotate. So the durable half of the record is normally unchanged and
+        the only thing a write would save is an access token that expires in
+        twelve hours anyway, at the price of a config-entry write (and a
+        listener wake-up) on every refresh, forever.
+        """
+        stored = token_from_storage(entry.data.get(CONF_OAUTH_TOKEN))
+        if stored is None:
+            # The entry holds no sign-in, and the only way it got that way is
+            # that the user switched cloud control off — which deletes it.
+            # A refresh still in flight on the closing connection must not
+            # put it back.
+            return
+        if stored.refresh_token == new_token.refresh_token:
+            return
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_OAUTH_TOKEN: token_to_storage(new_token)},
+        )
+
+    ws: ShellyCloudWebSocket | None = None
+    try:
+        # Inside the guard, not above it: reading the server URI can raise on
+        # a hand-edited entry and building the transport rejects an unusable
+        # host, and either escaping here would abort the entry setup — taking
+        # the poll down over the optional half of the integration.
+        server_uri = entry.data[CONF_SERVER_URI]
+        session = async_get_clientsession(hass)
+        tokens = ShellyTokenManager(
+            session, server_uri, token=token, on_token_refreshed=_persist_token
+        )
+        ws = ShellyCloudWebSocket(
+            session,
+            server_uri,
+            tokens.async_get_token,
+            on_token_rejected=tokens.async_force_refresh,
+            on_reauth=partial(_start_cloud_control_reauth, hass, entry),
+        )
+        await coordinator.async_enable_cloud_control(ws)
+    except ConfigEntryAuthFailed:
+        # Raised by the token manager when the stored sign-in is spent. It
+        # would abort the whole entry setup if it were left to propagate,
+        # taking the poll down over the optional half of the integration.
+        _LOGGER.warning(
+            "Cloud control: the stored Shelly sign-in was rejected; "
+            "asking for a new one. Polling is unaffected"
+        )
+        if ws is not None:
+            await ws.disconnect()
+        _start_cloud_control_reauth(hass, entry)
+    except Exception as err:  # noqa: BLE001 — see the docstring
+        # Deliberately every remaining exception, not a list of the expected
+        # ones: an optional channel that fails in an unforeseen way must
+        # still not abort the entry setup and take the poll with it.
+        #
+        # Type name only, never ``err`` itself: an aiohttp error's own text
+        # embeds the connect URL, and that URL carries the access token as a
+        # query parameter.
+        _LOGGER.error(
+            "Cloud control could not connect (%s); control entities are not "
+            "created this session. Polling is unaffected",
+            type(err).__name__,
+        )
+        if ws is not None:
+            await ws.disconnect()
 
 
 # ── Service registration ────────────────────────────────────────────────
