@@ -238,6 +238,30 @@ Poll-Intervall *lockern*, nie den Poll ersetzen. Damit ist Push eine
 Latenzverbesserung vor einem unveränderten Poll: bauenswert, aber keine
 Überschrift. Gebaut ist er nicht.
 
+#### 2.3 Anmelden statt Schlüssel einfügen — gemessen, nicht gebaut
+
+Ein Nebenprodukt der Steuerungsarbeit, festgehalten, bevor es verloren geht: der
+OAuth-Access-Token, der für das Relay erzeugt wird, funktioniert auch auf der
+**dokumentierten HTTP-API** — als Bearer-Header:
+
+| Anfrage | Antwort |
+|---|---|
+| `POST /device/all_status`, `Authorization: Bearer <access_token>` | **200**, der komplette Kontoschnappschuss |
+| derselbe Token als `auth_key=`-Body-Parameter | 401 `invalid_token` |
+
+Gemessen am 2026-09-05 an einem echten Konto. Eine Installation ließe sich also
+im Prinzip mit **einer Anmeldung und ganz ohne `auth_key`** einrichten statt mit
+einem Schlüssel *und* — für die Steuerung — einer Anmeldung.
+
+Zwei Gründe, warum es trotzdem nicht gebaut wird, in dieser Reihenfolge: es
+brächte einen **zweiten Authentifizierungsweg in den Poll**, also in den einen
+Teil dieser Integration, der noch nie kaputt war; und der Gewinn ist Bequemlichkeit
+beim Einrichten, keine neue Fähigkeit. Das einzige echte Argument dafür ist eine
+Fehlerklasse, die dadurch verschwindet: ein gespeicherter `auth_key` wird
+serverseitig ungültig, sobald das Kontopasswort geändert wird, und niemand sagt
+es dem Nutzer — die Integration antwortet ab da einfach mit 401. Ein Token, der
+sich selbst erneuert, hat dieses Problem nicht.
+
 Nicht-Ziele in M2:
 - Per-Device-Webhook-Subscriptions (das Relay liefert bereits alles).
 - Ein MQTT-Weg. Home Assistant bringt bereits eine MQTT-Integration mit; eine

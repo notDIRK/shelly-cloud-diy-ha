@@ -217,6 +217,29 @@ interval, never remove it. That makes push a latency improvement layered in
 front of an unchanged poll, which is worth building and is not worth a
 headline. It is not built.
 
+#### 2.3 Signing in instead of pasting a key — measured, not built
+
+A by-product of building the control channel, worth writing down before it is
+forgotten. The OAuth access token minted for the relay also works on the
+**documented HTTP API**, as a bearer header:
+
+| Request | Answer |
+|---|---|
+| `POST /device/all_status`, `Authorization: Bearer <access_token>` | **200**, the full account snapshot |
+| the same token sent as the `auth_key=` body parameter | 401 `invalid_token` |
+
+Measured 2026-09-05 on a live account. So an installation could in principle be
+set up with **one sign-in and no `auth_key` at all**, instead of a key *and* (for
+control) a sign-in.
+
+Two reasons it is not being built yet, in this order. It would put a **second
+authentication path into the poll**, which is the one part of this integration
+that has never broken; and the gain is convenience during setup, not capability.
+The one real argument for it is a failure class it removes: a stored `auth_key`
+is invalidated server-side when the account password changes, and nothing tells
+the user — the integration simply starts answering 401. A token that refreshes
+itself does not have that failure.
+
 Non-goals in M2:
 - Per-device webhook subscriptions (the relay delivers everything).
 - An MQTT path. Home Assistant already ships an MQTT integration; a second one
