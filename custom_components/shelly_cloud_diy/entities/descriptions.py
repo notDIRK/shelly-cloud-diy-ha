@@ -991,6 +991,17 @@ RPC_BINARY_SENSORS: Final[dict[str, RpcBinarySensorDescription]] = {
         name="Flood",
         device_class=BinarySensorDeviceClass.MOISTURE,
     ),
+    # Smoke alarm on Gen2+ hardware (Shelly Plus Smoke and friends), which
+    # reports its detection as an RPC component rather than a Gen1 status flag.
+    # The Gen1 spelling lives in BLOCK_BINARY_SENSORS above under the same
+    # name; both exist because both generations exist. Modelled on the native
+    # integration, which uses the identical key/sub_key pair. (#47)
+    "smoke": RpcBinarySensorDescription(
+        key="smoke",
+        sub_key="alarm",
+        name="Smoke",
+        device_class=BinarySensorDeviceClass.SMOKE,
+    ),
     # Disabled by default, matching HA core's native Shelly integration. On a
     # deep-sleep device this flag is a boot-timing artifact rather than a state:
     # the cached snapshot is captured seconds after wake, before the cloud

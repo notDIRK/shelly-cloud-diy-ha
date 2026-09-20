@@ -390,19 +390,28 @@ def _create_rpc_sensors(
                             coordinator, device_id, desc, idx, key, "state"
                         ))
 
-    # Flood alarms (for example Shelly Flood Gen4 / S4SN-0071Z)
-    for key, payload in status.items():
-        if match := re.fullmatch(r"flood:(\d+)", key):
-            idx = int(match.group(1))
-            if isinstance(payload, dict) and "alarm" in payload:
-                desc = RPC_BINARY_SENSORS.get("flood")
-                if desc:
-                    uid = f"{device_id}_{key}_alarm"
-                    if uid not in created:
-                        created.add(uid)
-                        entities.append(RpcBinarySensor(
-                            coordinator, device_id, desc, idx, key, "alarm"
-                        ))
+    # Alarm components on Gen2+ hardware: a flood sensor (Shelly Flood Gen4,
+    # #41) and a smoke detector (Shelly Plus Smoke, #47) each report the one
+    # reading they exist for as ``<component>:<id>.alarm``.
+    #
+    # Written as a table rather than a third copy of the same block on purpose.
+    # This gap has now been reported three times — Gen4 flood, Gen1 flood and
+    # smoke, Gen2+ smoke — always with the same shape: the diagnostics of a
+    # device arrive and the reading it was bought for does not. The next one
+    # should cost a line here, not a review.
+    for alarm_component in ("flood", "smoke"):
+        for key, payload in status.items():
+            if match := re.fullmatch(rf"{alarm_component}:(\d+)", key):
+                idx = int(match.group(1))
+                if isinstance(payload, dict) and "alarm" in payload:
+                    desc = RPC_BINARY_SENSORS.get(alarm_component)
+                    if desc:
+                        uid = f"{device_id}_{key}_alarm"
+                        if uid not in created:
+                            created.add(uid)
+                            entities.append(RpcBinarySensor(
+                                coordinator, device_id, desc, idx, key, "alarm"
+                            ))
 
     # Cloud
     if "connected" in status.get("cloud", {}):

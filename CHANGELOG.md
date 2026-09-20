@@ -9,6 +9,20 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.12.1 — 2026-09-20
+
+- **Fix: a Gen2+ smoke detector now creates its alarm entity.** A Shelly Plus
+  Smoke arrived with its battery, firmware, reporting and Wi-Fi diagnostics and
+  without the one reading a smoke detector exists for. It reports detection as
+  an RPC component, `smoke:<id>`, which the entity builders did not know —
+  exactly the gap the Gen4 flood sensor had in v0.10.0 and the Gen1 flood and
+  smoke sensors had in v0.11.0. A smoke-only device is now also recognised as
+  Gen2 on its own, rather than by leaning on an incidental battery component.
+  Reported by @alarmesdomotique (#47).
+- That is the third report of the same shape, so the builder for these alarm
+  components is now one table rather than a third copy of the same block: the
+  next device of this kind costs a line, not a review.
+
 ## v0.12.0 — 2026-09-05
 
 - **New: switching virtual components over the cloud — opt-in, and off by
