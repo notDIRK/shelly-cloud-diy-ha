@@ -47,7 +47,7 @@ Selbst nachsehen:
 grep -rn "_auth_key" custom_components/shelly_cloud_diy/
 ```
 
-Fünf Treffer, und es lohnt sich zu wissen, was jeder davon ist:
+Neun Treffer, alle in dieser einen Datei, und es lohnt sich zu wissen, was jeder davon ist:
 
 | Was es ist | Wo |
 |---|---|
@@ -55,7 +55,8 @@ Fünf Treffer, und es lohnt sich zu wissen, was jeder davon ist:
 | **gesendet** — Formularfeld, v1-Endpunkte | `_post` |
 | **gesendet** — JSON-Body-Feld, v2-Metadaten | `get_device_configs` |
 | **gesendet** — Query-Parameter, v2-Cover | `roller_control` |
-| nicht der Schlüssel — ein Textvergleich auf eine Fehlermeldung | Fehlerbehandlung in `_post` |
+| **nicht gesendet** — den Schlüssel aus einem Ablehnungsauszug entfernen, bevor die Diagnose ihn aufbewahrt (2 Treffer) | `_refusal_detail` |
+| nicht der Schlüssel — `invalid_auth_key`, Shellys Fehlercode, gesucht in einer Ablehnung (3 Treffer: Code und zwei Docstrings) | `_names_the_key`, `ShellyCloudAuthError` |
 
 Es sind also **drei** Stellen, die ihn übertragen. Jede Übertragung steht
 ausgeschrieben an der Aufrufstelle; die Hilfsmethoden hängen **nicht** still
@@ -247,7 +248,7 @@ Führe das gegen den installierten Code aus
 Nichts davon führt Code von mir aus.
 
 ```bash
-# 1. Jede Stelle, die den Schlüssel benutzt — erwartet: 5 Treffer, alle in api/cloud_control.py
+# 1. Jede Stelle, die den Schlüssel benutzt — erwartet: 9 Treffer, alle in api/cloud_control.py
 grep -rn "_auth_key" custom_components/shelly_cloud_diy/
 
 # 2. Jede ausgehende Anfrage der gesamten Integration

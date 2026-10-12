@@ -45,7 +45,7 @@ Check for yourself:
 grep -rn "_auth_key" custom_components/shelly_cloud_diy/
 ```
 
-Five hits, and it is worth knowing what each one is:
+Nine hits, all in that one file, and it is worth knowing what each one is:
 
 | What it is | Where |
 |---|---|
@@ -53,7 +53,8 @@ Five hits, and it is worth knowing what each one is:
 | **sent** — form field, v1 endpoints | `_post` |
 | **sent** — JSON body field, v2 metadata | `get_device_configs` |
 | **sent** — query parameter, v2 cover | `roller_control` |
-| not the key — a substring test on an error message | `_post` error handling |
+| **not sent** — removing the key from a refusal excerpt before diagnostics keep it (2 hits) | `_refusal_detail` |
+| not the key — `invalid_auth_key`, Shelly's error code, matched in a refusal body (3 hits: code and two docstrings) | `_names_the_key`, `ShellyCloudAuthError` |
 
 So there are **three** places that transmit it. Every transmission is written
 out explicitly at the call site; the helper methods do not silently attach
@@ -234,7 +235,7 @@ Run these against the installed code
 them run anything I wrote.
 
 ```bash
-# 1. Every place the key is used — expect 5 hits, all in api/cloud_control.py
+# 1. Every place the key is used — expect 9 hits, all in api/cloud_control.py
 grep -rn "_auth_key" custom_components/shelly_cloud_diy/
 
 # 2. Every outbound request in the whole integration
