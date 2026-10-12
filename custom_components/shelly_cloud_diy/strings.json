@@ -75,7 +75,7 @@
       "invalid_account": "Shelly Cloud rejected that email or password."
     },
     "abort": {
-      "already_configured": "This Shelly account is already configured.",
+      "already_configured": "This cloud key is already configured.",
       "reauth_entry_missing": "Could not find the integration to re-authenticate.",
       "reauth_successful": "Authorization cloud key updated."
     }

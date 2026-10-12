@@ -28,6 +28,7 @@ liability, and signing in again costs one form.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Any
 
@@ -95,6 +96,17 @@ _LOGGER = logging.getLogger(__name__)
 # Gap between the /device/all_status call and the v2 name lookup so we
 # stay under the shared 1 req/s rate limit.
 _V2_NAME_LOOKUP_GAP_S = 1.2
+
+def _entry_unique_id(server_uri: str, auth_key: str) -> str:
+    """Return the config entry's unique id for this server and key.
+
+    The key itself must not become the id — unique ids are shown in places
+    that ``entry.data`` is not — so a short digest of it stands in. It only
+    has to tell two keys on the same server apart.
+    """
+    digest = hashlib.sha256(auth_key.encode()).hexdigest()[:16]
+    return f"{server_uri}#{digest}"
+
 
 # ── Schemas ────────────────────────────────────────────────────────────
 
@@ -328,9 +340,24 @@ class ShellyCloudDiyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         len(names),
                     )
 
-                    # Tie the entry to the server URI so the user cannot
-                    # accidentally add two entries for the same account.
-                    await self.async_set_unique_id(server_uri)
+                    # One entry per cloud key, not per server: a Shelly
+                    # account with several homes has one key per home, all on
+                    # the same server, and the server URI alone turned the
+                    # second home away as a duplicate. (#52) The duplicate
+                    # test compares the stored pair rather than the unique id,
+                    # so entries created before this, whose id is the bare
+                    # URI, are still recognised.
+                    for existing in self._async_current_entries(
+                        include_ignore=False
+                    ):
+                        if (
+                            existing.data.get(CONF_SERVER_URI) == server_uri
+                            and existing.data.get(CONF_AUTH_KEY) == auth_key
+                        ):
+                            return self.async_abort(reason="already_configured")
+                    await self.async_set_unique_id(
+                        _entry_unique_id(server_uri, auth_key)
+                    )
                     self._abort_if_unique_id_configured()
 
                     self._pending_data = {

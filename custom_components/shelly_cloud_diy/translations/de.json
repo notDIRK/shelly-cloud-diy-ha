@@ -75,7 +75,7 @@
       "invalid_account": "Die Shelly Cloud hat diese E-Mail oder das Passwort abgelehnt."
     },
     "abort": {
-      "already_configured": "Dieses Shelly-Konto ist bereits konfiguriert.",
+      "already_configured": "Dieser Cloud-Key ist bereits eingerichtet.",
       "reauth_entry_missing": "Die Integration für die erneute Anmeldung konnte nicht gefunden werden.",
       "reauth_successful": "Authorization cloud key aktualisiert."
     }
