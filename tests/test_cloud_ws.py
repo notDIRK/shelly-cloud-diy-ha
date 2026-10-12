@@ -347,21 +347,39 @@ def test_the_ownership_probe_is_one_cheap_call():
 # ── Authentication ──────────────────────────────────────────────────────────
 
 
-def test_unauthorized_signals_reauth_and_does_not_retry():
-    """A rejected session token stays rejected; only a human can fix it.
+def _answers_then(response: dict[str, Any], later: dict[str, Any]):
+    """A responder that answers once with ``response``, then always ``later``."""
+    calls = {"n": 0}
+    first, rest = _answer(response), _answer(later)
 
-    So it raises, asks Home Assistant for re-authentication exactly once, and
-    reconnects zero times — a retry loop here would hammer the account with a
-    credential the relay has already refused.
+    def responder(frame: dict[str, Any]) -> dict[str, Any]:
+        calls["n"] += 1
+        return first(frame) if calls["n"] == 1 else rest(frame)
+
+    return responder
+
+
+def test_unauthorized_signals_reauth_and_does_not_retry():
+    """A session that goes bad stays bad; only a human can fix it.
+
+    The device answered on this session before, so UNAUTHORIZED now is about
+    the session, not the device. It raises, asks Home Assistant for
+    re-authentication exactly once, and reconnects zero times — a retry loop
+    here would hammer the account with a credential the relay has refused.
     """
     reauths: list[int] = []
 
     async def scenario():
         client = _client(
-            _FakeSession(lambda _: _FakeWebSocket(_answer({"error": "UNAUTHORIZED"}))),
+            _FakeSession(
+                lambda _: _FakeWebSocket(
+                    _answers_then({"id": 200}, {"error": "UNAUTHORIZED"})
+                )
+            ),
             on_reauth=lambda: reauths.append(1),
         )
         await client.connect()
+        await client.send_jrpc_request(DEVICE_ID, "Shelly.GetDeviceInfo")
         with pytest.raises(ShellyCloudWsAuthError):
             await client.send_jrpc_request(DEVICE_ID, "Boolean.Set", {"id": 200})
         # Give any (unwanted) reconnect attempt room to happen.
@@ -376,6 +394,44 @@ def test_unauthorized_signals_reauth_and_does_not_retry():
     assert reauths == [1]
     assert auth_failed is True
     assert connect_attempts == 1
+
+
+def test_unauthorized_for_a_device_that_never_answered_is_a_refusal(caplog):
+    """A device in another home of the account is refused, not a dead session.
+
+    Reported in #52: the relay answers UNAUTHORIZED for a device that belongs
+    to a second home of the same account, on a session whose token the
+    handshake accepted. Asking for re-authentication there helps nobody — the
+    same sign-in comes back — and stops control of every other device. So it
+    is a refusal for that one device: no re-authentication, the connection
+    stays open, the probe says "unknown" so it is asked again later, and the
+    warning is logged once, not on every probe.
+    """
+    reauths: list[int] = []
+
+    async def scenario():
+        ws = _FakeWebSocket(_answer({"error": "UNAUTHORIZED"}))
+        client = _client(
+            _FakeSession(lambda _: ws), on_reauth=lambda: reauths.append(1)
+        )
+        await client.connect()
+        with pytest.raises(ShellyCloudWsCommandError) as excinfo:
+            await client.send_jrpc_request(DEVICE_ID, "Shelly.GetDeviceInfo")
+        verdict = await client.async_classify_ownership(DEVICE_ID)
+        state = (excinfo.value.code, verdict, client.auth_failed, ws.closed)
+        await client.disconnect()
+        return state
+
+    with caplog.at_level(logging.WARNING):
+        code, verdict, auth_failed, closed = asyncio.run(scenario())
+
+    assert code == "UNAUTHORIZED"
+    assert verdict is DeviceOwnership.UNKNOWN
+    assert reauths == []
+    assert auth_failed is False
+    assert closed is False
+    warnings = [r for r in caplog.records if "another home" in r.getMessage()]
+    assert len(warnings) == 1
 
 
 def test_a_rejected_handshake_refreshes_the_token_before_retrying(monkeypatch):

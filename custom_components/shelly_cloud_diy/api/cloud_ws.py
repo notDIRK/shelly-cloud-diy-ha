@@ -348,6 +348,10 @@ class ShellyCloudWebSocket:
         self._auth_failed = False
         self._message_id = 0
         self._pending: dict[int, asyncio.Future] = {}
+        # Devices that answered on the current connection. Only for those is
+        # an UNAUTHORIZED evidence of a dead session; see send_jrpc_request.
+        self._answered: set[str] = set()
+        self._refusal_logged: set[str] = set()
         self._first_attempt: asyncio.Future | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
@@ -529,6 +533,7 @@ class ShellyCloudWebSocket:
             ) from None
 
         self._ws = ws
+        self._answered = set()
         self._resolve_first_attempt()
         close_reason = ""
         try:
@@ -693,8 +698,29 @@ class ShellyCloudWebSocket:
         error = response.get("error")
         if error is not None:
             code = _relay_error_code(error)
+            if code == _ERROR_UNAUTHORIZED and device_id not in self._answered:
+                # A dead token is refused at the handshake (401/403) or closes
+                # the connection (4401); an open session that is told
+                # UNAUTHORIZED for a device that never answered on it is not
+                # that. It is what the relay says for a device in another
+                # home of the same account (#52), so it is a refusal for this
+                # device, not a reason to sign in again — which would not
+                # help, and would stop control of every other device.
+                if device_id not in self._refusal_logged:
+                    self._refusal_logged.add(device_id)
+                    _LOGGER.warning(
+                        "Cloud relay refused %s for %s as UNAUTHORIZED; the "
+                        "device is probably in another home of the account",
+                        method,
+                        device_id,
+                    )
+                raise ShellyCloudWsCommandError(
+                    f"Cloud relay refused {method} on {device_id}: {code}",
+                    code=code,
+                )
             if code == _ERROR_UNAUTHORIZED:
-                # Log the marker, never the frame: the relay may echo session
+                # The device answered on this session before, so the session
+                # itself has gone bad. Log the marker, never the frame: the relay may echo session
                 # material on this path. No retry — see ShellyCloudWsAuthError.
                 _LOGGER.error(
                     "Cloud relay reported UNAUTHORIZED: device=%s method=%s",
@@ -722,6 +748,7 @@ class ShellyCloudWebSocket:
             device_id,
             sorted(response),
         )
+        self._answered.add(device_id)
         return response
 
     async def async_classify_ownership(self, device_id: str) -> DeviceOwnership:
