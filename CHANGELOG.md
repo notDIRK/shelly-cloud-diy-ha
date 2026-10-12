@@ -9,6 +9,17 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.16.2 — 2026-10-12
+
+- **Fix: several homes of one Shelly account can now be added.** An account
+  split into several homes has one Authorization cloud key per home, and all
+  of them live on the same cloud server. Setup tied an entry to the server
+  alone, so adding the second home failed with "already configured". An entry
+  is now one per key: the second home's key sets up a second entry, and
+  adding the same key twice is still refused, including next to entries
+  created before this release. Existing installations are unaffected.
+  Reported in #52.
+
 ## v0.16.1 — 2026-10-09
 
 - **Fix: a temperature below absolute zero is no longer recorded.** Right
