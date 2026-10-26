@@ -116,7 +116,7 @@ cannot see — and the two run side by side.
 | 🩺 **Health checks** | Warns when a device runs hot, its Wi-Fi signal is weak, or it is short of memory or storage — from data the poll already returns, at no extra request (see below). | ✅ shipped |
 | 🎛️ **Cloud control** | Writes the documented API cannot do at all: virtual components (an irrigation controller's zones, a script's boolean, a number, a text, a dropdown), starting and stopping scripts, and setting a BLU TRV's target temperature. Off by default, rides an **unsupported** channel, and works only on devices your account owns (see below). | 🧪 opt-in |
 | 📜 **Script state** | Whether each of a device's scripts is running — the one way to notice a script that died on a device you can only reach through the cloud. No opt-in needed; starting and stopping one does need cloud control. | ✅ shipped |
-| 🌡️ **BLU TRV valves** | Thermostatic valves behind a BLU Gateway Gen3 become climate entities — room temperature, setpoint, valve position, battery — under the names you gave them in the Shelly app. Changing the setpoint needs cloud control (see below). | ✅ shipped |
+| 🌡️ **BLU TRV valves** | Thermostatic valves behind a BLU Gateway Gen3 become climate entities — room temperature, setpoint, valve position, battery — under the names you gave them in the Shelly app. A diagnostic *Calibration* sensor flags a valve whose motor calibration failed (`not_calibrated`). Changing the setpoint, and starting a calibration with the *Calibrate* button, needs cloud control (see below). | ✅ shipped |
 | 📶 **BLU gateway signal** | The signal the bridging gateway reports for a Bluetooth device — the only signal figure a BLU sensor has, with the gateway's id as an attribute. | ✅ shipped |
 | 🆙 **Firmware update flag** | Tells you a Gen2+ device has an update waiting, with the offered version. Also on sleeping battery devices, and it survives a Home Assistant restart (verified on an H&T Gen3, [#32](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/32)) — the built-in integration loses it on restart. A flag, not an installer. | ✅ shipped |
 | 🏷️ **BLU firmware version** | The firmware a Bluetooth device runs, as a diagnostic sensor — the only firmware figure a BLU device has. | ✅ shipped |
@@ -544,7 +544,7 @@ OAuth sign-in plus the cloud WebSocket relay, used for **commands only**, on
 devices your account owns: writing the virtual components the documented API
 cannot write — booleans, numbers, texts and dropdowns — starting and stopping
 scripts, and setting the target temperature of a Shelly BLU TRV behind a BLU
-Gateway Gen3. Every control entity is created *beside* the read-only sensor of
+Gateway Gen3 or starting its motor calibration. Every control entity is created *beside* the read-only sensor of
 the same component, never instead of it.
 
 ### 🔭 Push instead of polling *(not planned as a replacement)*

@@ -42,6 +42,7 @@ from .api.cloud_ws import (
     ShellyCloudWsAuthError,
 )
 from .const import (
+    BLUTRV_CALL_TIMEOUT_S,
     BLUTRV_KEY_RE,
     BLUTRV_MAX_TEMP_C,
     BLUTRV_MIN_TEMP_C,
@@ -1986,6 +1987,50 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             },
         )
         # As above: ask the poll what happened instead of asserting it.
+        await self.async_request_refresh()
+
+    async def async_calibrate_blutrv(
+        self, device_id: str, component_key: str
+    ) -> None:
+        """Start a BLU TRV's stepper-motor calibration through its gateway.
+
+        Same addressing as :meth:`async_set_blutrv_target`: ``BluTrv.Call``
+        to the gateway, naming the valve by component id, wrapping the
+        valve's own ``TRV.Calibrate`` on its ``trv:0``.
+
+        Shelly documents that the call returns nothing useful — success or
+        failure shows up later in the valve's status, as the
+        ``not_calibrated`` error when it did not succeed — and that the run
+        takes up to ten seconds, while the gateway notes a forwarded call may
+        take up to a minute to answer. Hence the longer timeout, and hence
+        nothing here claims the calibration worked: the problem sensor reads
+        the outcome from the poll. (#58)
+        """
+        ws = self._cloud_ws
+        if ws is None:
+            raise HomeAssistantError(
+                "Cloud control is not connected for this Shelly account"
+            )
+        if not self.is_cloud_controllable(device_id):
+            raise HomeAssistantError(
+                f"Shelly Cloud will not route commands to gateway {device_id}"
+            )
+        match = BLUTRV_KEY_RE.match(component_key)
+        if match is None:
+            raise HomeAssistantError(
+                f"{component_key} is not a Shelly BLU TRV component"
+            )
+
+        await ws.send_jrpc_request(
+            device_id,
+            "BluTrv.Call",
+            {
+                "id": int(match.group(1)),
+                "method": "TRV.Calibrate",
+                "params": {"id": 0},
+            },
+            timeout=BLUTRV_CALL_TIMEOUT_S,
+        )
         await self.async_request_refresh()
 
     # ── Command dispatch (compat shim for platform files) ─────────────

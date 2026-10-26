@@ -122,7 +122,7 @@ die Shellys, die sie nicht sieht — und beide laufen nebeneinander.
 | 🩺 **Gesundheitsprüfung** | Meldet, wenn ein Gerät heiß läuft, sein WLAN-Signal schwach ist oder ihm Speicher ausgeht — aus Daten, die der Abruf ohnehin liefert, ohne eine einzige zusätzliche Anfrage (siehe unten). | ✅ ausgeliefert |
 | 🎛️ **Cloud-Steuerung** | Schreibzugriffe, die die dokumentierte API überhaupt nicht kann: virtuelle Komponenten schreiben (die Zonen eines Bewässerungscomputers, der Boolean eines Skripts, eine Zahl, ein Text, eine Auswahlliste), Skripte starten und stoppen und den Sollwert eines BLU TRV setzen. Standardmäßig aus, läuft über einen **nicht unterstützten** Kanal und funktioniert nur auf Geräten, die deinem Konto gehören (siehe unten). | 🧪 Opt-in |
 | 📜 **Skript-Zustand** | Ob die Skripte eines Geräts laufen — die einzige Möglichkeit, ein gestorbenes Skript auf einem Gerät zu bemerken, das du nur über die Cloud erreichst. Braucht kein Opt-in; Starten und Stoppen schon. | ✅ ausgeliefert |
-| 🌡️ **BLU-TRV-Ventile** | Heizkörperthermostate hinter einem BLU Gateway Gen3 werden zu Climate-Entitäten — Raumtemperatur, Sollwert, Ventilstellung, Batterie — unter den Namen, die du in der Shelly-App vergeben hast. Den Sollwert zu ändern braucht die Cloud-Steuerung (siehe unten). | ✅ ausgeliefert |
+| 🌡️ **BLU-TRV-Ventile** | Heizkörperthermostate hinter einem BLU Gateway Gen3 werden zu Climate-Entitäten — Raumtemperatur, Sollwert, Ventilstellung, Batterie — unter den Namen, die du in der Shelly-App vergeben hast. Ein Diagnose-Sensor *Kalibrierung* meldet ein Ventil, dessen Motor-Kalibrierung fehlgeschlagen ist (`not_calibrated`). Den Sollwert zu ändern und eine Kalibrierung über die Taste *Kalibrieren* zu starten, braucht die Cloud-Steuerung (siehe unten). | ✅ ausgeliefert |
 | 📶 **BLU-Gateway-Signal** | Das Signal, das das brückende Gateway für ein Bluetooth-Gerät meldet — die einzige Signalzahl, die ein BLU-Sensor hat, mit der Gateway-ID als Attribut. | ✅ ausgeliefert |
 | 🆙 **Firmware-Update-Kennzeichen** | Zeigt, dass für ein Gen2+-Gerät ein Update bereitliegt, mit der angebotenen Version. Auch bei schlafenden Batteriegeräten, und es übersteht einen Neustart von Home Assistant (geprüft an einem H&T Gen3, [#32](https://github.com/notDIRK/shelly-cloud-diy-ha/issues/32)) — die eingebaute Integration verliert es beim Neustart. Ein Hinweis, kein Installer. | ✅ ausgeliefert |
 | 🏷️ **BLU-Firmware-Version** | Die Firmware, die ein Bluetooth-Gerät fährt, als Diagnose-Sensor — die einzige Firmware-Angabe, die ein BLU-Gerät hat. | ✅ ausgeliefert |
@@ -575,9 +575,9 @@ OAuth-Anmeldung plus das Cloud-WebSocket-Relay, ausschließlich für **Befehle**
 und nur auf Geräten, die deinem Konto gehören: Schreiben der virtuellen
 Komponenten, die die dokumentierte API nicht schreiben kann — Booleans, Zahlen,
 Texte und Auswahllisten —, Starten und Stoppen von Skripten und Setzen der
-Solltemperatur eines Shelly BLU TRV hinter einem BLU Gateway Gen3. Jede
-Steuer-Entität entsteht **neben** dem Nur-Lese-Sensor derselben Komponente, nie
-an seiner Stelle.
+Solltemperatur eines Shelly BLU TRV hinter einem BLU Gateway Gen3 oder Starten
+seiner Motor-Kalibrierung. Jede Steuer-Entität entsteht **neben** dem
+Nur-Lese-Sensor derselben Komponente, nie an seiner Stelle.
 
 ### 🔭 Push statt Polling *(nicht als Ersatz geplant)*
 

@@ -286,6 +286,11 @@ VIRTUAL_TEXT_FALLBACK_MAX_LEN = 255
 BLUTRV_MIN_TEMP_C = 4.0
 BLUTRV_MAX_TEMP_C = 30.0
 
+# How long a call forwarded to a BLU TRV may take to answer. The gateway's
+# docs say a ``BluTrv.Call`` response can take up to a minute, against the
+# relay's default of ten seconds; a calibration alone runs up to ten. (#58)
+BLUTRV_CALL_TIMEOUT_S = 60.0
+
 
 # ── Physically impossible temperatures ─────────────────────────────
 #

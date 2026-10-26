@@ -248,5 +248,17 @@
       "title": "Einige Shelly-Geräte melden Probleme",
       "description": "{count} Gerät(e) in {entry_title} haben einen Gesundheits-Schwellwert überschritten und lagen mindestens fünf Minuten lang darüber.\n\nBefunde: {summary}\n\nGerät(e): {devices}\n\nAlles davon stammt aus den Statusdaten, die die Integration ohnehin abruft — bei der Shelly Cloud wurde nichts zusätzlich angefragt. Was die einzelnen Befunde bedeuten (die Bezeichnungen oben sind englisch, weil sie direkt aus der Auswertung kommen):\n\n- **Wi-Fi signal** — das Gerät liegt bei -70 dBm oder schlechter. Die Verbindung funktioniert noch, muss aber viel wiederholen; das Gerät fällt häufiger aus der Cloud als der Rest. Gerät versetzen, Access Point versetzen oder einen näheren ergänzen.\n- **Temperature** — eine Komponente meldet 70 °C oder mehr. Meist ein Gerät in einer gedämmten Unterputzdose oder eines, das mehr Strom schaltet, als der Einbauort verträgt. Bewertet wird nur die Eigenwärme einer Komponente; ein externer Fühler am Shelly Add-on nicht, weil ein Fühler im Heizungsvorlauf bauartbedingt heiß ist.\n- **Free memory / Free storage** — weniger als 20 % frei. Skripte, Zeitpläne und Firmware-Updates brauchen diesen Platz; unter 10 % verweigert die Firmware Arbeit und startet neu.\n- **Restart pending** — eine Konfigurationsänderung ist noch nicht übernommen. Gerät in der Shelly-App neu starten.\n- **Component error** — das meldet das Gerät selbst, meistens ein angeschlossener Add-on-Fühler, der nicht mehr antwortet.\n- **Firmware update** — reine Information und standardmäßig aus. Erscheint hier nur, wenn du es in den Optionen eingeschaltet hast.\n\nDas ist eine Karte für das gesamte Konto, nie eine pro Gerät. Sie verschwindet von selbst, sobald alle Geräte wieder unter ihren Schwellwerten liegen; die ganze Prüfung lässt sich unter Einstellungen → Geräte & Dienste → Shelly Cloud DIY → Konfigurieren abschalten."
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "blutrv_calibration": {
+        "name": "{valve} Kalibrierung"
+      }
+    },
+    "button": {
+      "blutrv_calibrate": {
+        "name": "{valve} kalibrieren"
+      }
+    }
   }
 }

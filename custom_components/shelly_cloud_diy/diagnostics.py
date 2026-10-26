@@ -363,7 +363,8 @@ def _entity_source_keys(entity: Any, status: dict[str, Any]) -> set[str]:
 
     An entity that also reads a second key as a fallback names it in
     ``_fallback_source_keys`` — the BLU TRV climate entity, whose state may
-    sit in ``blutrv_rstatus:<id>`` instead (#55). Only keys that currently
+    sit in ``blutrv_rstatus:<id>`` instead (#55), and the valve's calibration
+    sensor, whose error list may (#58). Only keys that currently
     supply a value are listed there, so the report stays a measurement.
     """
     keys: set[str] = set()
@@ -395,8 +396,10 @@ def _coverage_diagnostics(
     picture. The firmware flag is left out for the neighbouring reason: it
     reads one field of ``sys`` and claiming the whole block would hide the
     three readings in it that still produce nothing. The climate builder runs
-    too, because the BLU TRV entity is the only reader of
-    ``blutrv_rstatus:<id>`` (#55).
+    too, because the BLU TRV entity is the main reader of
+    ``blutrv_rstatus:<id>`` (#55); the valve's calibration sensor, the other
+    one, comes with the RPC binary sensors (#58). The Calibrate button is not
+    run: it reads nothing the climate entity does not already cover.
 
     Key NAMES only, never values — this block sits next to a redacted dump
     and must not become a way around it.
@@ -435,8 +438,8 @@ def _coverage_diagnostics(
                 ("sensor.rpc", sensor_platform._create_rpc_sensors),
                 ("binary_sensor.rpc", binary_sensor_platform._create_rpc_sensors),
             )
-            # Only the BLU TRV builds a climate entity, and it is the one
-            # entity that reads ``blutrv_rstatus:<id>`` (#55). Added only when
+            # Only the BLU TRV builds a climate entity, the main reader of
+            # ``blutrv_rstatus:<id>`` (#55). Added only when
             # a valve is there, so every other device is judged exactly as
             # before.
             if any(BLUTRV_KEY_RE.match(key) for key in status):

@@ -472,8 +472,10 @@ def test_the_remote_status_counts_as_covered_only_while_it_is_read() -> None:
     assert "blutrv_rstatus:200" in report["covered_keys"]
     assert "bthomesensor:203" in report["uncovered_keys"]
 
-    # #48: the block is there, but the flat fields supply everything.
-    report = diagnostics._coverage_diagnostics(
-        _FakeCoordinator(GATEWAY_STATUS), GATEWAY_ID, GATEWAY_STATUS
-    )
-    assert "blutrv_rstatus:200" in report["uncovered_keys"]
+    # #48: the block is there, but the flat fields supply everything the
+    # climate entity reads. (Since #58 the calibration sensor reads the
+    # block's ``trv:0.errors``, so the report as a whole now calls it
+    # covered — asserted in test_blu_trv_calibration.py. The climate
+    # entity's own claim is what this guards.)
+    _, entities = _climates()
+    assert entities[0]._fallback_source_keys == set()

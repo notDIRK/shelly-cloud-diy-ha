@@ -46,7 +46,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    BLUTRV_KEY_RE,
     BLUTRV_MAX_TEMP_C,
     BLUTRV_MIN_TEMP_C,
     DOMAIN,
@@ -55,6 +54,7 @@ from .const import (
 )
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
+from .entities.blutrv import BluTrvValveMixin, blutrv_keys
 
 
 def _create_climate_entities(
@@ -76,16 +76,7 @@ def _create_climate_entities(
     if not isinstance(status, dict):
         return entities
 
-    keys = sorted(
-        (
-            key
-            for key, value in status.items()
-            if BLUTRV_KEY_RE.match(key) and isinstance(value, dict)
-        ),
-        key=lambda key: int(key.split(":", 1)[1]),
-    )
-
-    for display_index, key in enumerate(keys):
+    for display_index, key in enumerate(blutrv_keys(status)):
         unique_id = f"{device_id}_{key}_climate"
         if unique_id in created:
             continue
@@ -135,7 +126,7 @@ async def async_setup_entry(
     )
 
 
-class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
+class ShellyBluTrvClimate(BluTrvValveMixin, ShellyBaseEntity, ClimateEntity):
     """A Shelly BLU TRV, reached through its BLU Gateway Gen3."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -159,55 +150,13 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
         entity name.
         """
         super().__init__(coordinator, device_id, display_index)
-        self._component_key = component_key
+        self._init_valve(component_key, display_index)
         self._attr_unique_id = f"{device_id}_{component_key}_climate"
-        self._fallback_name = (
-            "BLU TRV" if display_index == 0 else f"BLU TRV {display_index + 1}"
-        )
 
     @property
     def name(self) -> str:
-        """The valve's Shelly-App alias, or its position on the gateway.
-
-        A property rather than a fixed name because the alias is resolved by
-        a background task after the entity exists — and because it may never
-        resolve, which is why the positional fallback stays.
-
-        Two roads to the name were measured and found closed: the valve's own
-        v2 config answers ``name: null``, and so does the
-        ``bthomedevice:<id>`` it points at. The one that works is the
-        account's alias listing, where each valve has a child record of its
-        own — resolved in the coordinator, which is the side that makes that
-        request anyway. (#48)
-        """
-        aliases = getattr(self.coordinator, "blu_trv_names", None)
-        if isinstance(aliases, dict):
-            gateway = aliases.get(self._device_id)
-            if isinstance(gateway, dict):
-                alias = gateway.get(self._component_key)
-                if isinstance(alias, str) and alias.strip():
-                    return alias.strip()
-        return self.virtual_component_name(self._component_key) or self._fallback_name
-
-    def _component(self) -> dict[str, Any]:
-        value = self.device_status.get(self._component_key)
-        return value if isinstance(value, dict) else {}
-
-    @property
-    def _rstatus_key(self) -> str:
-        """The gateway's mirror of this valve's own status (#55)."""
-        return f"blutrv_rstatus:{self._component_key.split(':', 1)[1]}"
-
-    def _remote(self, component: str) -> dict[str, Any]:
-        """One component of the valve's own status, as the gateway mirrors it."""
-        rstatus = self.device_status.get(self._rstatus_key)
-        if not isinstance(rstatus, dict):
-            return {}
-        status = rstatus.get("status")
-        if not isinstance(status, dict):
-            return {}
-        value = status.get(component)
-        return value if isinstance(value, dict) else {}
+        """The valve's Shelly-App alias, or its position on the gateway."""
+        return self.valve_name
 
     def _remote_internal_temperature(self) -> Any:
         """``temperature:0.tC``, unless the component reports an error.
@@ -285,13 +234,7 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
         and keeps serving the last values it saw, so a valve that dropped off
         would otherwise present a stale temperature as a live one.
         """
-        component = self._component()
-        return (
-            bool(component)
-            and component.get("connected") is not False
-            and component.get("paired") is not False
-            and super().available
-        )
+        return self._valve_present() and super().available
 
     @property
     def supported_features(self) -> ClimateEntityFeature:

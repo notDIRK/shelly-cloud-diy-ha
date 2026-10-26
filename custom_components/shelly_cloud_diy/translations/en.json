@@ -248,5 +248,17 @@
       "title": "Some Shelly devices are reporting problems",
       "description": "{count} device(s) on {entry_title} crossed a health threshold and stayed across it for at least five minutes.\n\nFindings: {summary}\n\nDevice(s): {devices}\n\nEverything behind this comes from the status data the integration already polls — nothing extra was requested from Shelly Cloud. What the individual findings mean:\n\n- **Wi-Fi signal** — the device sits at -70 dBm or worse. The link still works, but it retransmits a lot and the device will drop off the cloud more often than the rest of your fleet. Move the device, move the access point, or add one closer.\n- **Temperature** — a component reports 70 °C or more. Usually a device packed into an insulated wall box, or one switching more current than its installation allows for. Only a component's own temperature is judged; an external probe on a Shelly Add-on is not, because a sensor in a boiler pipe is hot by design.\n- **Free memory / Free storage** — under 20 % is left. Scripts, schedules and over-the-air updates need that room; below 10 % the firmware starts refusing work and rebooting.\n- **Restart pending** — a configuration change has not been applied yet. Restart the device from the Shelly app.\n- **Component error** — the device itself is reporting this one, most often a wired add-on sensor that no longer answers.\n- **Firmware update** — information only, and off by default. It appears here only if you switched it on in the options.\n\nThis is one card for the whole account, never one per device. It clears by itself as soon as every device is back below its thresholds, and the whole check can be switched off under Settings → Devices & services → Shelly Cloud DIY → Configure."
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "blutrv_calibration": {
+        "name": "{valve} calibration"
+      }
+    },
+    "button": {
+      "blutrv_calibrate": {
+        "name": "Calibrate {valve}"
+      }
+    }
   }
 }

@@ -24,6 +24,11 @@ from .const import (
 )
 from .coordinator import ShellyCloudCoordinator, SIGNAL_NEW_DEVICE
 from .entities.base import ShellyBaseEntity
+from .entities.blutrv import (
+    BLUTRV_ERROR_NOT_CALIBRATED,
+    BluTrvPartMixin,
+    blutrv_keys,
+)
 from .entities.descriptions import (
     BLE_BINARY_SENSORS,
     BLOCK_BINARY_SENSORS,
@@ -482,7 +487,78 @@ def _create_rpc_sensors(
             created.add(uid)
             entities.append(ShellyScriptBinarySensor(coordinator, device_id, key))
 
+    # Shelly BLU TRV calibration (READ-ONLY) — one per valve on a BLU Gateway
+    # Gen3, created whether or not an error list is in the payload yet: no
+    # list reads as unknown, not as "calibrated". Works without cloud
+    # control; only the Calibrate button needs the relay. (#58)
+    for display_index, key in enumerate(blutrv_keys(status)):
+        uid = f"{device_id}_{key}_calibration"
+        if uid not in created:
+            created.add(uid)
+            entities.append(
+                ShellyBluTrvCalibrationBinarySensor(
+                    coordinator, device_id, key, display_index
+                )
+            )
+
     return entities
+
+
+class ShellyBluTrvCalibrationBinarySensor(
+    BluTrvPartMixin, ShellyBaseEntity, BinarySensorEntity
+):
+    """Whether a BLU TRV reports that its calibration did not succeed.
+
+    ``not_calibrated`` in the valve's ``trv:0`` errors — in Shelly's words,
+    "calibration did not succeed. The TRV will not function properly." The
+    list is read flat from ``blutrv:<id>`` first and from the gateway's
+    mirror of the valve status in ``blutrv_rstatus:<id>`` second, like every
+    other valve field. (#58)
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "blutrv_calibration"
+    _default_name_template = "{valve} calibration"
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        component_key: str,
+        display_index: int,
+    ) -> None:
+        """Initialize the sensor on the gateway's device, as the climate is."""
+        super().__init__(coordinator, device_id, display_index)
+        self._init_valve(component_key, display_index)
+        self._attr_unique_id = f"{device_id}_{component_key}_calibration"
+
+    @property
+    def available(self) -> bool:
+        """Unavailable once the valve is off the gateway's radio link.
+
+        The gateway keeps serving the last error list it saw, which would
+        otherwise read as the live state of a valve it can no longer hear.
+        """
+        return self._valve_present() and super().available
+
+    @property
+    def is_on(self) -> bool | None:
+        """On when calibration failed, None when no error list is available."""
+        errors, _ = self._trv_errors()
+        if errors is None:
+            return None
+        return BLUTRV_ERROR_NOT_CALIBRATED in errors
+
+    @property
+    def _fallback_source_keys(self) -> set[str]:
+        """``blutrv_rstatus:<id>``, but only while the error list comes from it.
+
+        Read by the coverage report, which must not call the mirror covered
+        when the flat component already answers.
+        """
+        _, source = self._trv_errors()
+        return {source} if source and source != self._component_key else set()
 
 
 class ShellyFirmwareUpdateBinarySensor(ShellyBaseEntity, BinarySensorEntity):
