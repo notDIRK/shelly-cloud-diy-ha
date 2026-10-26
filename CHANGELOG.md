@@ -9,6 +9,19 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.16.4 — 2026-10-26
+
+- **Fix: a Shelly BLU TRV shows its room temperature and setpoint again on
+  gateways that report them only in the valve's remote status.** Some BLU
+  Gateway Gen3 setups leave `current_C`, `target_C` and `pos` out of
+  `blutrv:<id>` and carry them in `blutrv_rstatus:<id>` instead. The climate
+  entity read only the first place, so the thermostat card stayed empty
+  although setting a temperature worked. Each field is now read from
+  `blutrv:<id>` first and from the remote status when it is missing there;
+  gateways that already worked are unaffected. The diagnostics coverage
+  report counts `blutrv_rstatus:<id>` as covered only while it supplies a
+  value. Reported in #55.
+
 ## v0.16.3 — 2026-10-26
 
 - **Fix: cloud control no longer asks to sign in again for a device in
