@@ -5,16 +5,29 @@ Gateway Gen3 that carries it. The valve itself speaks Bluetooth and has no
 cloud identity, so everything about it — reading and writing — happens on the
 gateway's record.
 
-Reading needs nothing new: the gateway publishes each paired valve as
-``blutrv:<id>`` with the thermostat state flat inside it, and that arrives in
-the ordinary poll. Writing goes over the opt-in cloud relay, which is why the
+Reading needs nothing new: everything arrives in the ordinary poll, but in
+one of two shapes, and the entity reads both:
+
+- **Flat** — ``current_C``, ``target_C`` and ``pos`` directly in the gateway
+  component ``blutrv:<id>``. Seen on @gerok1984's gateway (#48).
+- **Remote status only** — ``blutrv:<id>`` without those fields; the valve's
+  own status mirrored by the gateway in ``blutrv_rstatus:<id>``, as
+  ``status.trv:0.{current_C,target_C,pos}`` with the internal sensor in
+  ``status.temperature:0.tC``. Seen on a BLU Gateway Gen3 with a valve on
+  firmware v1.5.0 (#55).
+
+Per field the flat value wins when it is a usable reading, and the remote
+status is the fallback. The ``bthomesensor:<id>`` components the gateway also
+carries are deliberately not used: nothing in the payload ties one of them to
+a particular valve. Writing goes over the opt-in cloud relay, which is why the
 setpoint appears only once cloud control is connected and the relay has said
 it will route to this gateway — exactly like the virtual booleans in
 :mod:`switch`. Without it the entity is still useful: it reads the room
 temperature and the valve's own setpoint, it just cannot change it.
 
-Shape confirmed against a real sanitised diagnostics extract from a gateway
-with two valves, contributed by @gerok1984 (#48).
+Both shapes confirmed against real diagnostics extracts: a gateway with two
+valves contributed by @gerok1984 (#48), and the remote-status-only gateway
+from #55.
 """
 from __future__ import annotations
 
@@ -53,9 +66,9 @@ def _create_climate_entities(
     """Build one climate entity per BLU TRV this gateway carries.
 
     Same signature as the sensor and binary-sensor builders so it can be
-    driven directly from a test — and so the coverage report in
-    :mod:`diagnostics` could call it, should a climate-only device ever
-    appear.
+    driven directly from a test and by the coverage report in
+    :mod:`diagnostics`, which runs it to learn whether
+    ``blutrv_rstatus:<id>`` is being read (#55).
     """
     entities: list[ClimateEntity] = []
     if not coordinator.is_enabled(device_id):
@@ -181,6 +194,90 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
         return value if isinstance(value, dict) else {}
 
     @property
+    def _rstatus_key(self) -> str:
+        """The gateway's mirror of this valve's own status (#55)."""
+        return f"blutrv_rstatus:{self._component_key.split(':', 1)[1]}"
+
+    def _remote(self, component: str) -> dict[str, Any]:
+        """One component of the valve's own status, as the gateway mirrors it."""
+        rstatus = self.device_status.get(self._rstatus_key)
+        if not isinstance(rstatus, dict):
+            return {}
+        status = rstatus.get("status")
+        if not isinstance(status, dict):
+            return {}
+        value = status.get(component)
+        return value if isinstance(value, dict) else {}
+
+    def _remote_internal_temperature(self) -> Any:
+        """``temperature:0.tC``, unless the component reports an error.
+
+        In the #48 snapshot that component carries ``errors: ["disabled"]``
+        and reads two degrees off ``current_C``, so a flagged reading is
+        treated as none rather than as a room temperature.
+        """
+        sensor = self._remote("temperature:0")
+        if sensor.get("errors"):
+            return None
+        return sensor.get("tC")
+
+    @staticmethod
+    def _as_celsius(value: Any) -> float | None:
+        """A temperature, or None if the value is no reading.
+
+        Below absolute zero counts as no reading, as on every temperature
+        sensor (#51) — a placeholder must not reach the history as a value.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        value = plausible_temperature(value)
+        return None if value is None else float(value)
+
+    def _celsius(self, field: str) -> tuple[float | None, str | None]:
+        """A temperature field of the valve and the status key it came from.
+
+        Flat in ``blutrv:<id>`` first (#48), then ``trv:0`` of the remote
+        status (#55). Each source is judged on its own, so a placeholder in
+        the flat field falls through to the remote one instead of hiding it.
+        For the room temperature the internal sensor is the last resort.
+        """
+        if (value := self._as_celsius(self._component().get(field))) is not None:
+            return value, self._component_key
+        if (value := self._as_celsius(self._remote("trv:0").get(field))) is not None:
+            return value, self._rstatus_key
+        if field == "current_C" and (
+            value := self._as_celsius(self._remote_internal_temperature())
+        ) is not None:
+            return value, self._rstatus_key
+        return None, None
+
+    def _position(self) -> tuple[int | float | None, str | None]:
+        """How far the valve is open, in percent, and where that came from."""
+        for value, source in (
+            (self._component().get("pos"), self._component_key),
+            (self._remote("trv:0").get("pos"), self._rstatus_key),
+        ):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return value, source
+        return None, None
+
+    @property
+    def _fallback_source_keys(self) -> set[str]:
+        """Status keys beyond ``blutrv:<id>`` that currently supply a value.
+
+        Read by the coverage report. ``blutrv_rstatus:<id>`` counts only
+        while it actually fills a field the flat component leaves empty — in
+        the #48 shape it is present but unused, and calling it covered there
+        would hide exactly the kind of gap the report exists to find.
+        """
+        sources = {
+            self._celsius("current_C")[1],
+            self._celsius("target_C")[1],
+            self._position()[1],
+        }
+        return {key for key in sources if key and key != self._component_key}
+
+    @property
     def available(self) -> bool:
         """Available while the gateway is reporting and the valve is on it.
 
@@ -205,25 +302,13 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
             return ClimateEntityFeature.TARGET_TEMPERATURE
         return ClimateEntityFeature(0)
 
-    def _celsius(self, field: str) -> float | None:
-        """A temperature field of the valve, or None if it is no reading.
-
-        Below absolute zero counts as no reading, as on every temperature
-        sensor (#51) — a placeholder must not reach the history as a value.
-        """
-        value = self._component().get(field)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None
-        value = plausible_temperature(value)
-        return None if value is None else float(value)
-
     @property
     def current_temperature(self) -> float | None:
-        return self._celsius("current_C")
+        return self._celsius("current_C")[0]
 
     @property
     def target_temperature(self) -> float | None:
-        return self._celsius("target_C")
+        return self._celsius("target_C")[0]
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -233,8 +318,8 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
         no flow and no demand flag, so anything above closed is the honest
         answer to "is this radiator being fed".
         """
-        pos = self._component().get("pos")
-        if isinstance(pos, (int, float)) and pos > 0:
+        pos, _ = self._position()
+        if pos is not None and pos > 0:
             return HVACAction.HEATING
         return HVACAction.IDLE
 
@@ -248,8 +333,9 @@ class ShellyBluTrvClimate(ShellyBaseEntity, ClimateEntity):
         """
         component = self._component()
         attrs: dict[str, Any] = {}
-        if isinstance(component.get("pos"), (int, float)):
-            attrs["valve_position"] = component["pos"]
+        pos, _ = self._position()
+        if pos is not None:
+            attrs["valve_position"] = pos
         if isinstance(component.get("last_updated_ts"), (int, float)):
             attrs["last_updated_ts"] = component["last_updated_ts"]
         if isinstance(component.get("fw_ver"), str):

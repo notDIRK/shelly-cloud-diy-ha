@@ -17,6 +17,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    BLUTRV_KEY_RE,
     CLOUD_CONTROL_DEFAULT,
     CONF_CLOUD_CONTROL,
     CONF_CREATE_ALL_INITIALLY,
@@ -359,12 +360,20 @@ def _entity_source_keys(entity: Any, status: dict[str, Any]) -> set[str]:
     ``_attr_key`` with no container at all. Reading all three and keeping
     only what is actually a key of this payload covers every shape without
     the report having to know the class hierarchy.
+
+    An entity that also reads a second key as a fallback names it in
+    ``_fallback_source_keys`` — the BLU TRV climate entity, whose state may
+    sit in ``blutrv_rstatus:<id>`` instead (#55). Only keys that currently
+    supply a value are listed there, so the report stays a measurement.
     """
     keys: set[str] = set()
     for attribute in ("_component_key", "_status_key", "_attr_key"):
         value = getattr(entity, attribute, None)
         if isinstance(value, str) and value in status:
             keys.add(value)
+    fallback = getattr(entity, "_fallback_source_keys", None)
+    if isinstance(fallback, (set, frozenset, list, tuple)):
+        keys |= {key for key in fallback if isinstance(key, str) and key in status}
     return keys
 
 
@@ -385,7 +394,9 @@ def _coverage_diagnostics(
     because they derive from no single status key and would only blur the
     picture. The firmware flag is left out for the neighbouring reason: it
     reads one field of ``sys`` and claiming the whole block would hide the
-    three readings in it that still produce nothing.
+    three readings in it that still produce nothing. The climate builder runs
+    too, because the BLU TRV entity is the only reader of
+    ``blutrv_rstatus:<id>`` (#55).
 
     Key NAMES only, never values — this block sits next to a redacted dump
     and must not become a way around it.
@@ -403,6 +414,7 @@ def _coverage_diagnostics(
         # the whole entity stack, and a diagnostics module has no business
         # making that a hard import for every start.
         from . import binary_sensor as binary_sensor_platform
+        from . import climate as climate_platform
         from . import sensor as sensor_platform
 
         # The same dispatch the two platforms make, so the report is judged
@@ -423,6 +435,14 @@ def _coverage_diagnostics(
                 ("sensor.rpc", sensor_platform._create_rpc_sensors),
                 ("binary_sensor.rpc", binary_sensor_platform._create_rpc_sensors),
             )
+            # Only the BLU TRV builds a climate entity, and it is the one
+            # entity that reads ``blutrv_rstatus:<id>`` (#55). Added only when
+            # a valve is there, so every other device is judged exactly as
+            # before.
+            if any(BLUTRV_KEY_RE.match(key) for key in status):
+                builders += (
+                    ("climate.rpc", climate_platform._create_climate_entities),
+                )
         else:
             builders = (
                 ("sensor.block", sensor_platform._create_block_sensors),

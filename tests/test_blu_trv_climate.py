@@ -337,3 +337,143 @@ def test_the_valve_components_no_longer_report_as_uncovered() -> None:
     )
     assert "blutrv:200" not in report["uncovered_keys"]
     assert "blutrv:201" not in report["uncovered_keys"]
+
+
+# ── 7. The remote-status-only shape (#55) ─────────────────────────────
+#
+# A second BLU Gateway Gen3 (valve on firmware v1.5.0) carries none of
+# ``current_C`` / ``target_C`` / ``pos`` in ``blutrv:<id>``; the valve's state
+# is only in the gateway's mirror of its own status. The values below are the
+# reporter's, verbatim.
+
+
+def _rstatus(
+    *,
+    current_c: Any = 22.74,
+    target_c: Any = 4,
+    pos: Any = 0,
+    t_c: Any = 22.89,
+    t_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    temperature: dict[str, Any] = {"id": 0, "tC": t_c}
+    if t_errors is not None:
+        temperature["errors"] = t_errors
+    trv: dict[str, Any] = {"id": 0}
+    for field, value in (("current_C", current_c), ("target_C", target_c), ("pos", pos)):
+        if value is not None:
+            trv[field] = value
+    return {"v": 39, "status": {"temperature:0": temperature, "trv:0": trv}}
+
+
+def _bare_valve(component_id: int = 200) -> dict[str, Any]:
+    """``blutrv:<id>`` as #55 has it: link and battery, no thermostat state."""
+    valve = _valve(component_id, current_c=0, target_c=0)
+    for field in ("current_C", "target_C", "pos"):
+        del valve[field]
+    return valve
+
+
+def _rstatus_only(**rstatus: Any) -> dict[str, Any]:
+    return {
+        "sys": {"mac": "34987A1B2C3D"},
+        "blutrv:200": _bare_valve(),
+        "blutrv_rstatus:200": _rstatus(**rstatus),
+        "bthomesensor:202": {"id": 202, "value": 4},
+        "bthomesensor:203": {"id": 203, "value": 22.7},
+    }
+
+
+def test_the_flat_shape_reads_exactly_as_before() -> None:
+    """#48 unchanged: the flat fields win over its rstatus block."""
+    _, entities = _climates()
+    assert entities[0].current_temperature == 24.3
+    assert entities[0].target_temperature == 10
+    assert entities[0].extra_state_attributes["valve_position"] == 0
+
+
+def test_the_remote_status_alone_supplies_temperatures_and_position() -> None:
+    _, (entity,) = _climates(_rstatus_only(pos=35))
+    assert entity.current_temperature == 22.74
+    assert entity.target_temperature == 4
+    assert entity.hvac_action is HVACAction.HEATING
+    assert entity.extra_state_attributes["valve_position"] == 35
+
+
+def test_the_flat_value_wins_when_both_are_present() -> None:
+    """Negative control, one variable: the flat fields are added back."""
+    status = _rstatus_only(pos=35)
+    status["blutrv:200"] = _valve(200, current_c=21.0, target_c=19.5, pos=0)
+    _, (entity,) = _climates(status)
+    assert entity.current_temperature == 21.0
+    assert entity.target_temperature == 19.5
+    assert entity.hvac_action is HVACAction.IDLE
+
+
+def test_a_flat_placeholder_falls_through_to_the_remote_reading() -> None:
+    status = _rstatus_only()
+    status["blutrv:200"] = _valve(200, current_c=-999, target_c=-999)
+    _, (entity,) = _climates(status)
+    assert entity.current_temperature == 22.74
+    assert entity.target_temperature == 4
+
+
+def test_a_remote_placeholder_is_no_reading() -> None:
+    _, (entity,) = _climates(_rstatus_only(current_c=-999, target_c=-999, t_c=-999))
+    assert entity.current_temperature is None
+    assert entity.target_temperature is None
+
+
+def test_a_boolean_is_not_a_temperature_or_a_position() -> None:
+    _, (entity,) = _climates(
+        _rstatus_only(current_c=True, target_c=True, pos=True, t_c=True)
+    )
+    assert entity.current_temperature is None
+    assert entity.target_temperature is None
+    assert entity.hvac_action is HVACAction.IDLE
+    assert "valve_position" not in entity.extra_state_attributes
+
+
+def test_the_internal_sensor_is_the_last_resort_for_the_room_temperature() -> None:
+    _, (entity,) = _climates(_rstatus_only(current_c=None))
+    assert entity.current_temperature == 22.89
+    # Only the room temperature has that fallback; a setpoint does not.
+    _, (entity,) = _climates(_rstatus_only(target_c=None))
+    assert entity.target_temperature is None
+
+
+def test_a_flagged_internal_sensor_is_not_used() -> None:
+    """#48's ``temperature:0`` says ``disabled`` and reads two degrees off."""
+    _, (entity,) = _climates(_rstatus_only(current_c=None, t_errors=["disabled"]))
+    assert entity.current_temperature is None
+
+
+def test_the_remote_status_of_another_valve_is_not_borrowed() -> None:
+    status = _rstatus_only()
+    status["blutrv_rstatus:201"] = status.pop("blutrv_rstatus:200")
+    _, (entity,) = _climates(status)
+    assert entity.current_temperature is None
+    assert entity.target_temperature is None
+
+
+def test_bthome_sensors_are_never_read_as_the_valve() -> None:
+    """Their link to a valve is not provable from the payload (#55)."""
+    status = _rstatus_only()
+    del status["blutrv_rstatus:200"]
+    _, (entity,) = _climates(status)
+    assert entity.current_temperature is None
+    assert entity.target_temperature is None
+
+
+def test_the_remote_status_counts_as_covered_only_while_it_is_read() -> None:
+    status = _rstatus_only()
+    report = diagnostics._coverage_diagnostics(
+        _FakeCoordinator(status), GATEWAY_ID, status
+    )
+    assert "blutrv_rstatus:200" in report["covered_keys"]
+    assert "bthomesensor:203" in report["uncovered_keys"]
+
+    # #48: the block is there, but the flat fields supply everything.
+    report = diagnostics._coverage_diagnostics(
+        _FakeCoordinator(GATEWAY_STATUS), GATEWAY_ID, GATEWAY_STATUS
+    )
+    assert "blutrv_rstatus:200" in report["uncovered_keys"]
