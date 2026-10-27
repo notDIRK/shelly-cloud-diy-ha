@@ -282,7 +282,7 @@ async def async_get_config_entry_diagnostics(
     ent_reg = er.async_get(hass)
     cloud_devices = await gather_cloud_devices(coordinator)
     fleet, suggestions, resilience = compute_fleet(
-        hass, cloud_devices, dev_reg, ent_reg
+        hass, cloud_devices, dev_reg, ent_reg, entry.entry_id
     )
     return {
         "fleet_map": async_redact_data(

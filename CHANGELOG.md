@@ -9,6 +9,17 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.17.1 — 2026-10-27
+
+- **Fix: no more deprecation warning on Home Assistant 2026.10 and later.**
+  The integration looked up its own devices with
+  `device_registry.async_get_device`, which HA 2026.10 deprecated and will
+  remove in 2027.8.0. Lookups now ask for the device of the account's own
+  config entry, using the new per-entry API where HA has it and the old one
+  on releases before 2026.10, so 2025.1.4 stays supported. Side effect: with
+  a device shared into two accounts, each account now finds its own copy.
+  Reported by @tester277 in #59.
+
 ## v0.17.0 — 2026-10-27
 
 - **New: calibrate a Shelly BLU TRV from Home Assistant.** Every BLU TRV

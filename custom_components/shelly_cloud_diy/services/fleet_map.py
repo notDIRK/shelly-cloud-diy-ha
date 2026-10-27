@@ -46,6 +46,7 @@ from ..const import (
     NATIVE_CONTROL_DOMAINS,
     NATIVE_SHELLY_DOMAIN,
 )
+from ..utils.registry import async_get_own_device
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
@@ -346,12 +347,15 @@ def build_fleet_map(
     cloud_devices: dict[str, CloudDevice],
     dev_reg: dr.DeviceRegistry,
     ent_reg: er.EntityRegistry,
+    config_entry_id: str,
 ) -> FleetMap:
     """Compute the cloud↔local join — decoupled from names (MAC only).
 
     ``cloud_devices`` is the offline-inclusive ``id → CloudDevice`` universe
     (see ``gather_cloud_devices``). This function is PURE: no await, no
-    coordinator reference.
+    coordinator reference. ``config_entry_id`` is the account the universe
+    belongs to; "our" device is looked up within that entry only, since a
+    device shared into two accounts has one HA device per entry.
     """
     with_entities = _device_ids_with_entities(ent_reg)
     local_index = _index_local_by_mac(dev_reg, with_entities)
@@ -369,7 +373,7 @@ def build_fleet_map(
         else:
             match_kind = "none"
 
-        our_device = dev_reg.async_get_device(identifiers={(DOMAIN, cloud_id)})
+        our_device = async_get_own_device(dev_reg, cloud_id, config_entry_id)
         our_id = our_device.id if our_device is not None else None
 
         entries.append(
@@ -765,9 +769,10 @@ def compute_fleet(
     cloud_devices: dict[str, CloudDevice],
     dev_reg: dr.DeviceRegistry,
     ent_reg: er.EntityRegistry,
+    config_entry_id: str,
 ) -> tuple[FleetMap, list[NameSuggestion], ResilienceReport]:
     """Run the full read-only computation for one cloud-device universe."""
-    fleet = build_fleet_map(hass, cloud_devices, dev_reg, ent_reg)
+    fleet = build_fleet_map(hass, cloud_devices, dev_reg, ent_reg, config_entry_id)
     suggestions = suggest_native_names(fleet, dev_reg)
     resilience = scan_resilience(hass, fleet, ent_reg)
     return fleet, suggestions, resilience
@@ -789,13 +794,13 @@ async def async_handle_fleet_map(
     ent_reg = er.async_get(hass)
 
     entries = hass.config_entries.async_entries(DOMAIN)
-    coordinators: list[ShellyCloudCoordinator] = []
+    coordinators: list[tuple[str, ShellyCloudCoordinator]] = []
     for entry in entries:
         coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
         if coordinator is not None and getattr(
             coordinator, "last_update_success", False
         ):
-            coordinators.append(coordinator)
+            coordinators.append((entry.entry_id, coordinator))
 
     if not coordinators:
         raise ServiceValidationError(
@@ -805,10 +810,10 @@ async def async_handle_fleet_map(
 
     reports: list[str] = []
     total_applied = 0
-    for coordinator in coordinators:
+    for entry_id, coordinator in coordinators:
         cloud_devices = await gather_cloud_devices(coordinator)
         fleet, suggestions, resilience = compute_fleet(
-            hass, cloud_devices, dev_reg, ent_reg
+            hass, cloud_devices, dev_reg, ent_reg, entry_id
         )
 
         applied: int | None = None

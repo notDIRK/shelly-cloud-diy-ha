@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -397,7 +398,7 @@ class _RealCoordinatorDriver:
 
         coord = ShellyCloudCoordinator.__new__(ShellyCloudCoordinator)
         coord.hass = None
-        coord._entry = None
+        coord._entry = SimpleNamespace(entry_id="entry-test")
         coord.device_names = {}
         coord._rate_limit_streak = 0
         coord._rate_limit_since = None

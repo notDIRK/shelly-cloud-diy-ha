@@ -93,6 +93,7 @@ from .repair_issues import (
     missing_devices_verdict,
     rate_limit_verdict,
 )
+from .utils.registry import async_get_own_device
 
 # When an unexplained 401/403 stops being "the cloud is having a minute" and
 # becomes "ask the user for a new key". BOTH gates must pass: a poll every 5 s
@@ -1381,7 +1382,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             if name := self.device_names.get(did):
                 labels[did] = name
                 continue
-            device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, did)})
+            device_entry = async_get_own_device(dev_reg, did, self._entry.entry_id)
             if device_entry is None:
                 continue
             raw = device_entry.name_by_user or device_entry.name or ""
@@ -1474,8 +1475,8 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         updated_in_registry = 0
         for did, resolved in names.items():
             formatted = f"{resolved} ({did})"
-            device_entry = dev_reg.async_get_device(
-                identifiers={(DOMAIN, did)}
+            device_entry = async_get_own_device(
+                dev_reg, did, self._entry.entry_id
             )
             if device_entry is None:
                 # Entity creation hasn't happened yet (device not enabled

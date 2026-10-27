@@ -245,6 +245,7 @@ def test_one_alias_request_fills_both_the_device_names_and_the_valve_aliases(
             raise AssertionError("the id-filtered lookup drops the child records")
 
     coordinator = object.__new__(ShellyCloudCoordinator)
+    coordinator._entry = SimpleNamespace(entry_id="entry-test")
     coordinator._api = _Api()
     coordinator.devices = {GATEWAY_ID: {"status": _status(), "online": True}}
     coordinator.data = coordinator.devices
