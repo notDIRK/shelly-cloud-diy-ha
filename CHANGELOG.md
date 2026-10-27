@@ -9,6 +9,22 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.17.0 — 2026-10-27
+
+- **New: calibrate a Shelly BLU TRV from Home Assistant.** Every BLU TRV
+  behind a BLU Gateway Gen3 gets a **Calibrate** button. It sends Shelly's
+  documented `TRV.Calibrate` through the gateway and is available while
+  cloud control can reach the gateway, like the setpoint. During
+  calibration the valve opens and closes fully once. If the gateway stops
+  waiting for the valve's answer (`Error: Timeout`), the press is not
+  reported as a failure: on real hardware the valve calibrated about a
+  minute later anyway. Every other refusal still shows an error.
+- **New: calibration problem sensor** per BLU TRV (diagnostic). It is on
+  while the valve reports `not_calibrated`, which Shelly describes as "the
+  TRV will not function properly". It works without cloud control. Tested
+  on two valves in one installation, both calibrated successfully from the
+  button. Requested in #55, tracked in #58.
+
 ## v0.16.4 — 2026-10-26
 
 - **Fix: a Shelly BLU TRV shows its room temperature and setpoint again on
