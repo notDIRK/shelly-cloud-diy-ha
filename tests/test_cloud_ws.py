@@ -715,6 +715,9 @@ def test_a_device_side_refusal_keeps_the_reason_the_device_gave():
     err = asyncio.run(_scenario())
     assert err.code == "JRPC_ERROR", "the branchable code must not change"
     assert "not in options" in str(err)
+    # Callers that must tell one device error from another branch on this,
+    # not on the message text (#58).
+    assert err.detail == "Invalid argument 'value': not in options!"
 
 
 @pytest.mark.parametrize(

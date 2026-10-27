@@ -200,12 +200,17 @@ class ShellyCloudWsCommandError(ShellyCloudWsError):
 
     ``code`` is the relay's own short error string (e.g. ``WRONG_ID``), kept as
     an attribute so callers can branch on it without parsing the message.
+    ``detail`` is the device's own explanation when the relay forwarded one
+    (see ``_relay_error_detail``), already capped, else None.
     """
 
-    def __init__(self, message: str, *, code: str) -> None:
+    def __init__(
+        self, message: str, *, code: str, detail: str | None = None
+    ) -> None:
         """Store the relay's error code alongside the readable message."""
         super().__init__(message)
         self.code = code
+        self.detail = detail
 
 
 class DeviceOwnership(StrEnum):
@@ -740,6 +745,7 @@ class ShellyCloudWebSocket:
                 f"Cloud relay refused {method} on {device_id}: {code}"
                 + (f" ({detail})" if detail else ""),
                 code=code,
+                detail=detail,
             )
 
         _LOGGER.debug(

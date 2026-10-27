@@ -26,6 +26,10 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.shelly_cloud_diy import binary_sensor as binary_sensor_platform
 from custom_components.shelly_cloud_diy import button as button_platform
 from custom_components.shelly_cloud_diy import diagnostics
+from custom_components.shelly_cloud_diy.api.cloud_ws import (
+    ShellyCloudWsCommandError,
+    ShellyCloudWsTimeoutError,
+)
 from custom_components.shelly_cloud_diy.const import BLUTRV_CALL_TIMEOUT_S
 from custom_components.shelly_cloud_diy.coordinator import ShellyCloudCoordinator
 
@@ -191,6 +195,46 @@ def test_a_refused_calibration_is_loud() -> None:
     _, buttons = _buttons(relay=relay)
     with pytest.raises(HomeAssistantError):
         asyncio.run(buttons[0].async_press())
+
+
+def _gateway_timeout() -> ShellyCloudWsCommandError:
+    """The answer measured on a real valve on 2026-10-26, as the relay shapes it."""
+    return ShellyCloudWsCommandError(
+        f"Cloud relay refused BluTrv.Call on {GATEWAY_ID}: JRPC_ERROR (Error: Timeout)",
+        code="JRPC_ERROR",
+        detail="Error: Timeout",
+    )
+
+
+def test_the_gateway_giving_up_on_the_radio_link_is_not_a_failure(caplog) -> None:
+    """Measured: "Error: Timeout" came back, the valve calibrated anyway."""
+    relay = _FakeRelay(error=_gateway_timeout())
+    coordinator, buttons = _buttons(relay=relay)
+    asyncio.run(buttons[0].async_press())
+
+    assert len(relay.sent) == 1
+    assert coordinator.refreshes == 1
+    assert "outcome follows" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ShellyCloudWsCommandError(
+            "refused", code="JRPC_ERROR", detail="Invalid argument 'id'"
+        ),
+        ShellyCloudWsCommandError("refused", code="WRONG_ID"),
+        ShellyCloudWsCommandError("refused", code="Timeout"),
+        ShellyCloudWsTimeoutError("our own relay timeout"),
+    ],
+    ids=["other-device-error", "wrong-id", "bare-code", "relay-timeout"],
+)
+def test_every_other_refusal_stays_loud(error: Exception) -> None:
+    relay = _FakeRelay(error=error)
+    coordinator, buttons = _buttons(relay=relay)
+    with pytest.raises(HomeAssistantError):
+        asyncio.run(buttons[0].async_press())
+    assert coordinator.refreshes == 0
 
 
 # ── 2. The button ─────────────────────────────────────────────────────

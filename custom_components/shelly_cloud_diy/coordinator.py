@@ -40,6 +40,7 @@ from .api.cloud_ws import (
     DeviceOwnership,
     ShellyCloudWebSocket,
     ShellyCloudWsAuthError,
+    ShellyCloudWsCommandError,
 )
 from .const import (
     BLUTRV_CALL_TIMEOUT_S,
@@ -138,6 +139,20 @@ _RELAY_WRITABLE_KEY_RES = (
 _BLE_ADDRESS_FIELDS = ("mac", "id", "addr")
 
 _BLUTRV_RINFO_KEY_RE = re.compile(r"^blutrv_rinfo:(\d+)$")
+
+
+def _is_gateway_radio_timeout(err: ShellyCloudWsCommandError) -> bool:
+    """True for the gateway's own "the valve did not answer in time" (#58).
+
+    The relay delivered the call — the device-side error is the gateway's,
+    wrapped as ``JRPC_ERROR`` with the message ``Error: Timeout``. Our own
+    relay timeout is a different exception and is not covered here.
+    """
+    return (
+        err.code == "JRPC_ERROR"
+        and isinstance(err.detail, str)
+        and err.detail.strip().lower() == "error: timeout"
+    )
 
 
 def _normalise_ble_address(value: Any) -> str | None:
@@ -2021,16 +2036,33 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 f"{component_key} is not a Shelly BLU TRV component"
             )
 
-        await ws.send_jrpc_request(
-            device_id,
-            "BluTrv.Call",
-            {
-                "id": int(match.group(1)),
-                "method": "TRV.Calibrate",
-                "params": {"id": 0},
-            },
-            timeout=BLUTRV_CALL_TIMEOUT_S,
-        )
+        try:
+            await ws.send_jrpc_request(
+                device_id,
+                "BluTrv.Call",
+                {
+                    "id": int(match.group(1)),
+                    "method": "TRV.Calibrate",
+                    "params": {"id": 0},
+                },
+                timeout=BLUTRV_CALL_TIMEOUT_S,
+            )
+        except ShellyCloudWsCommandError as err:
+            # Measured 2026-10-26 on a real valve: the gateway answered
+            # JRPC_ERROR "Error: Timeout" after 17 s, and the valve reported
+            # itself calibrated about a minute later. The gateway gives up
+            # waiting on the radio link while the motor is still running, so
+            # this one answer means "started, outcome unknown" — exactly what
+            # the documented success says too. Every other refusal stays loud.
+            if not _is_gateway_radio_timeout(err):
+                raise
+            _LOGGER.warning(
+                "BLU TRV calibration for %s on %s was started, but the gateway "
+                "stopped waiting for the valve's answer; the outcome follows "
+                "in the valve's calibration status",
+                component_key,
+                device_id,
+            )
         await self.async_request_refresh()
 
     # ── Command dispatch (compat shim for platform files) ─────────────
