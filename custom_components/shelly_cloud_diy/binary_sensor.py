@@ -345,6 +345,21 @@ def _create_block_sensors(
                     coordinator, device_id, desc, 0, "sensor", "state"
                 ))
 
+    # Gen1 Shelly TRV: open-window detection, per thermostat (#62)
+    thermostats = status.get("thermostats")
+    if isinstance(thermostats, list):
+        for idx, thermostat in enumerate(thermostats):
+            if isinstance(thermostat, dict) and "window_open" in thermostat:
+                desc = BLOCK_BINARY_SENSORS.get("window_open")
+                if desc:
+                    uid = f"{device_id}_window_open_{idx}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(BlockBinarySensor(
+                            coordinator, device_id, desc, idx,
+                            "thermostats", "window_open",
+                        ))
+
     # Flood / Smoke — Gen1 leaf sensors carry a bare top-level flag:
     # Shelly Flood (``SHWT-1``) reports ``"flood": false`` and Shelly Smoke
     # (``SHSM-01``) reports ``"smoke": false``, both alongside ``is_valid``

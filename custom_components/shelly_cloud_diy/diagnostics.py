@@ -451,6 +451,11 @@ def _coverage_diagnostics(
                 ("sensor.block", sensor_platform._create_block_sensors),
                 ("binary_sensor.block", binary_sensor_platform._create_block_sensors),
             )
+            # Same reasoning as above, for the Gen1 TRV (#62).
+            if "thermostats" in status:
+                builders += (
+                    ("climate.block", climate_platform._create_climate_entities),
+                )
 
         covered: set[str] = set()
         entity_count = 0

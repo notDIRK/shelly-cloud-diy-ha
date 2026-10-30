@@ -1,8 +1,10 @@
 """Climate platform for Shelly Cloud DIY.
 
-One entity kind lives here: a **Shelly BLU TRV** seen through the Shelly BLU
-Gateway Gen3 that carries it. The valve itself speaks Bluetooth and has no
-cloud identity, so everything about it — reading and writing — happens on the
+Two entity kinds live here. The **Gen1 Shelly TRV** is a device of its own and
+read-only, see :class:`ShellyGen1TrvClimate`. The rest of this docstring is
+about the other one, a **Shelly BLU TRV** seen through the Shelly BLU Gateway
+Gen3 that carries it. The valve itself speaks Bluetooth and has no cloud
+identity, so everything about it — reading and writing — happens on the
 gateway's record.
 
 Reading needs nothing new: everything arrives in the ordinary poll, but in
@@ -44,11 +46,14 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     BLUTRV_MAX_TEMP_C,
     BLUTRV_MIN_TEMP_C,
     DOMAIN,
+    GEN1_TRV_MAX_TEMP_C,
+    GEN1_TRV_MIN_TEMP_C,
     SIGNAL_DEVICE_REMOVED,
     plausible_temperature,
 )
@@ -63,7 +68,7 @@ def _create_climate_entities(
     created: set[str],
     coordinator: ShellyCloudCoordinator,
 ) -> list[ClimateEntity]:
-    """Build one climate entity per BLU TRV this gateway carries.
+    """Build one climate entity per BLU TRV or Gen1 thermostat.
 
     Same signature as the sensor and binary-sensor builders so it can be
     driven directly from a test and by the coverage report in
@@ -84,6 +89,15 @@ def _create_climate_entities(
         entities.append(
             ShellyBluTrvClimate(coordinator, device_id, key, display_index)
         )
+
+    thermostats = status.get("thermostats")
+    if isinstance(thermostats, list):
+        for index, thermostat in enumerate(thermostats):
+            unique_id = f"{device_id}_thermostat_{index}"
+            if not isinstance(thermostat, dict) or unique_id in created:
+                continue
+            created.add(unique_id)
+            entities.append(ShellyGen1TrvClimate(coordinator, device_id, index))
     return entities
 
 
@@ -293,3 +307,95 @@ class ShellyBluTrvClimate(BluTrvValveMixin, ShellyBaseEntity, ClimateEntity):
         await self.coordinator.async_set_blutrv_target(
             self._device_id, self._component_key, float(temperature)
         )
+
+
+class ShellyGen1TrvClimate(ShellyBaseEntity, ClimateEntity):
+    """A Gen1 Shelly TRV (``SHTRV-01``), read-only.
+
+    Reads ``thermostats[<n>]`` of the device's own status, in the shape
+    measured on two real valves (#62)::
+
+        {"pos": 4.7,
+         "target_t": {"enabled": true, "value": 18.3, "units": "C"},
+         "tmp": {"value": 18.4, "units": "C", "is_valid": true}, ...}
+
+    There is no way to write: the HTTP API covers relays, lights and rollers,
+    and the cloud relay speaks JRPC, which Gen1 does not. So no feature is
+    offered, rather than a setpoint that goes nowhere.
+    """
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
+    _attr_min_temp = GEN1_TRV_MIN_TEMP_C
+    _attr_max_temp = GEN1_TRV_MAX_TEMP_C
+    _attr_target_temperature_step = 0.5
+    _attr_supported_features = ClimateEntityFeature(0)
+    # Read by the coverage report in :mod:`diagnostics`.
+    _status_key = "thermostats"
+
+    def __init__(
+        self,
+        coordinator: ShellyCloudCoordinator,
+        device_id: str,
+        index: int,
+    ) -> None:
+        """Initialize the thermostat; the first one takes the device's name."""
+        super().__init__(coordinator, device_id, index)
+        self._attr_unique_id = f"{device_id}_thermostat_{index}"
+        self._attr_name = None if index == 0 else f"Thermostat {index + 1}"
+
+    def _thermostat(self) -> dict[str, Any]:
+        """This thermostat's status, or an empty dict."""
+        thermostats = self.device_status.get("thermostats")
+        if isinstance(thermostats, list) and self._channel < len(thermostats):
+            thermostat = thermostats[self._channel]
+            if isinstance(thermostat, dict):
+                return thermostat
+        return {}
+
+    def _reading(self, field: str) -> dict[str, Any]:
+        """The ``tmp`` or ``target_t`` block, or an empty dict."""
+        block = self._thermostat().get(field)
+        return block if isinstance(block, dict) else {}
+
+    @staticmethod
+    def _celsius(block: dict[str, Any]) -> float | None:
+        """A block's temperature in Celsius, or None if it is no reading."""
+        value = block.get("value")
+        if (
+            block.get("is_valid") is False
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+        ):
+            return None
+        if block.get("units") == "F":
+            value = TemperatureConverter.convert(
+                value, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+            )
+        value = plausible_temperature(value)
+        return None if value is None else float(value)
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self._celsius(self._reading("tmp"))
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self._celsius(self._reading("target_t"))
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        """Off while the valve's target-temperature control is disabled."""
+        if self._reading("target_t").get("enabled") is False:
+            return HVACMode.OFF
+        return HVACMode.HEAT
+
+    @property
+    def hvac_action(self) -> HVACAction:
+        """Derive heating from the valve position, as on the BLU TRV."""
+        if self.hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        pos = self._thermostat().get("pos")
+        if isinstance(pos, (int, float)) and not isinstance(pos, bool) and pos > 0:
+            return HVACAction.HEATING
+        return HVACAction.IDLE

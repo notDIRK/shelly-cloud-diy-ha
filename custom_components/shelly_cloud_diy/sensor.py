@@ -206,6 +206,35 @@ def _create_block_sensors(
                     coordinator, device_id, desc, 0, key, "tC"
                 ))
 
+    # Battery and valve position of a Gen1 Shelly TRV, in the shape measured
+    # on real valves (#62): ``"bat": {"value": 100, "voltage": 4.118}`` and
+    # ``"thermostats": [{"pos": 4.7, ...}]``. ``bat`` has the same shape on
+    # the other Gen1 battery devices in the vendor documentation, so it is
+    # read from any of them.
+    bat = status.get("bat")
+    if isinstance(bat, dict) and "value" in bat:
+        desc = BLOCK_SENSORS.get(("device", "battery"))
+        if desc:
+            uid = f"{device_id}_battery"
+            if uid not in created:
+                created.add(uid)
+                entities.append(BlockSensor(
+                    coordinator, device_id, desc, 0, "bat", "value"
+                ))
+
+    thermostats = status.get("thermostats")
+    if isinstance(thermostats, list):
+        for idx, thermostat in enumerate(thermostats):
+            if isinstance(thermostat, dict) and "pos" in thermostat:
+                desc = BLOCK_SENSORS.get(("valve", "pos"))
+                if desc:
+                    uid = f"{device_id}_valve_pos_{idx}"
+                    if uid not in created:
+                        created.add(uid)
+                        entities.append(BlockSensor(
+                            coordinator, device_id, desc, idx, "thermostats", "pos"
+                        ))
+
     # Wi-Fi signal strength. The description has existed since the first
     # release but no builder ever looked it up, so the reading never became an
     # entity — the same dead-description gap as the returned energy in #38 and

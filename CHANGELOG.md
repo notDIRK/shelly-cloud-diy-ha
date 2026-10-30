@@ -9,6 +9,17 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.18.0 — 2026-10-30
+
+- **New: Gen1 Shelly TRV, read-only.** A Gen1 valve (`SHTRV-01`) now gets a
+  climate entity with room temperature and setpoint, and sensors for valve
+  position, battery and open window. The climate entity is read-only: this
+  integration has no write path to a Gen1 valve. Built from the payload of
+  two real valves in #62, reported by @zbcsaba; not yet confirmed on hardware.
+- **New: battery sensor on other Gen1 battery devices.** The `bat` block has
+  the same shape in the vendor documentation for the Gen1 H&T, Flood, Smoke
+  and Door/Window, so they get a battery sensor too. Unconfirmed on those.
+
 ## v0.17.1 — 2026-10-27
 
 - **Fix: no more deprecation warning on Home Assistant 2026.10 and later.**

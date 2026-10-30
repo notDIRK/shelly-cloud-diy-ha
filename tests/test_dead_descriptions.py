@@ -79,7 +79,6 @@ _INTENTIONALLY_UNWIRED: dict[str, set[Any]] = {
     # bulk guesswork #32 warns about. They need a Gen1 payload first.
     "BLOCK_SENSORS": {
         ("adc", "adc"),
-        ("device", "battery"),
         ("device", "deviceTemp"),
         ("device", "energy"),
         ("device", "power"),

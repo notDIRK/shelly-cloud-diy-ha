@@ -79,6 +79,13 @@ class BlockSensorDescription:
     available_fn: Callable[[dict], bool] | None = None  # Check availability
 
 
+def _valve_position(value: Any) -> float | int | None:
+    """A Gen1 TRV's opening in percent, or None if it is no position."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if 0 <= value <= 100 else None
+
+
 # Gen1 Block sensors - based on official HA implementation
 BLOCK_SENSORS: Final[dict[tuple[str, str], BlockSensorDescription]] = {
     # Battery
@@ -89,6 +96,16 @@ BLOCK_SENSORS: Final[dict[tuple[str, str], BlockSensorDescription]] = {
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # Gen1 Shelly TRV: how far the valve is open (#62)
+    ("valve", "pos"): BlockSensorDescription(
+        key="valve|pos",
+        name="Valve Position",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:pipe-valve",
+        value_fn=_valve_position,
     ),
     # Device temperature
     ("device", "deviceTemp"): BlockSensorDescription(
@@ -947,6 +964,12 @@ BLOCK_BINARY_SENSORS: Final[dict[str, BlockBinarySensorDescription]] = {
         name="Door",
         device_class=BinarySensorDeviceClass.DOOR,
         value_fn=lambda value: value == "open",
+    ),
+    # Gen1 Shelly TRV: the valve's own open-window detection (#62)
+    "window_open": BlockBinarySensorDescription(
+        key="thermostat|window_open",
+        name="Window",
+        device_class=BinarySensorDeviceClass.WINDOW,
     ),
     # Flood
     "flood": BlockBinarySensorDescription(
