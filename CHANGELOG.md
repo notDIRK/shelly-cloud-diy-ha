@@ -9,6 +9,15 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.18.1 — 2026-11-10
+
+- **Fix: no more climate deprecation warning on Home Assistant 2026.11.**
+  Both TRV climate entities (BLU TRV and Gen1 TRV) provided the old
+  temperature names, which HA 2026.11 deprecated and will remove in 2027.11.
+  They now provide the `native_*` names as well; releases before 2026.11
+  keep using the old ones, so 2025.1.4 stays supported. Checked on HA
+  2026.11.1: the warning is gone. Reported by @flo1990m in #64.
+
 ## v0.18.0 — 2026-10-30
 
 - **New: Gen1 Shelly TRV, read-only.** A Gen1 valve (`SHTRV-01`) now gets a

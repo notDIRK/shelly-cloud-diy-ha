@@ -62,6 +62,14 @@ from .entities.base import ShellyBaseEntity
 from .entities.blutrv import BluTrvValveMixin, blutrv_keys
 
 
+# LEGACY_TEMPERATURE_API_NOTE: HA 2026.11 renamed the climate temperature
+# API to ``native_*`` and drops the old names in 2027.11 (#64); a class that
+# provides only the old names logs a deprecation warning. Releases before
+# 2026.11 know only the old names, down to the 2025.1.4 floor. Both entity
+# classes therefore provide both, and the new HA reads the native one when a
+# class has both.
+
+
 def _create_climate_entities(
     device_id: str,
     status: dict[str, Any],
@@ -143,6 +151,8 @@ async def async_setup_entry(
 class ShellyBluTrvClimate(BluTrvValveMixin, ShellyBaseEntity, ClimateEntity):
     """A Shelly BLU TRV, reached through its BLU Gateway Gen3."""
 
+    # Native and legacy name side by side, see LEGACY_TEMPERATURE_API_NOTE.
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.HEAT]
     _attr_hvac_mode = HVACMode.HEAT
@@ -260,12 +270,15 @@ class ShellyBluTrvClimate(BluTrvValveMixin, ShellyBaseEntity, ClimateEntity):
         return ClimateEntityFeature(0)
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._celsius("current_C")[0]
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._celsius("target_C")[0]
+
+    current_temperature = native_current_temperature
+    target_temperature = native_target_temperature
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -324,6 +337,8 @@ class ShellyGen1TrvClimate(ShellyBaseEntity, ClimateEntity):
     offered, rather than a setpoint that goes nowhere.
     """
 
+    # Native and legacy name side by side, see LEGACY_TEMPERATURE_API_NOTE.
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_min_temp = GEN1_TRV_MIN_TEMP_C
@@ -376,12 +391,15 @@ class ShellyGen1TrvClimate(ShellyBaseEntity, ClimateEntity):
         return None if value is None else float(value)
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._celsius(self._reading("tmp"))
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._celsius(self._reading("target_t"))
+
+    current_temperature = native_current_temperature
+    target_temperature = native_target_temperature
 
     @property
     def hvac_mode(self) -> HVACMode:
