@@ -9,6 +9,27 @@ full reasoning and the reporters' credits:
 the history is readable from a checkout alone, including on the Gitea mirror,
 which has no release pages.
 
+## v0.18.2 — 2026-11-21
+
+- **Fix: Gen1 measurements no longer drop to "unavailable" while fresh
+  readings arrive.** Availability of a mains device came from the cloud's
+  cached `cloud.connected` flag alone. A device whose flag reads `false` now
+  stays available as long as it keeps pushing new snapshots, and goes
+  unavailable once its Reporting window runs out. Right after an HA restart a
+  device only counts as alive once it has actually pushed. Reported by
+  @flo1990m in #68, with the diagnostics that showed the contradiction.
+- **Fix: no more device-registry deprecation warnings on Home Assistant
+  2026.11.** Fleet-Map, orphan detection and device replacement used
+  `DeviceEntry.config_entries`, `primary_config_entry` and mapping access to
+  `device_registry.devices`. HA removes these in 2027.9 and 2027.10. They now
+  use the new single-entry API where HA has it. Checked on HA 2026.11.2.
+  Reported by @flo1990m in #69.
+- **Fix: energy history import sets `unit_class`.** A coming Home Assistant
+  release turns a missing unit class into an error. Contributed by
+  @gjohansson-ST in #67.
+- **Minimum Home Assistant is now 2025.11.0** (was 2024.1.0). The history
+  import needs it, and on releases before 2025.4 it was already failing.
+
 ## v0.18.1 — 2026-11-10
 
 - **Fix: no more climate deprecation warning on Home Assistant 2026.11.**
