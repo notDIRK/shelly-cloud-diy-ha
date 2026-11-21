@@ -38,6 +38,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from ..const import CONF_ENABLED_DEVICES, DOMAIN
+from ..utils.registry import device_config_entry_ids
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -58,7 +59,7 @@ def _resolve_entry(
     hass: HomeAssistant, old_dev: dr.DeviceEntry, new_dev: dr.DeviceEntry
 ) -> ConfigEntry | None:
     """Return the shared Shelly Cloud DIY config entry of both devices."""
-    common = set(old_dev.config_entries) & set(new_dev.config_entries)
+    common = device_config_entry_ids(old_dev) & device_config_entry_ids(new_dev)
     for entry_id in common:
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry is not None and entry.domain == DOMAIN:
