@@ -317,6 +317,7 @@ class HistoricalDataService:
                 StatisticMeanType,
                 StatisticMetaData,
             )
+            from homeassistant.util.unit_conversion import EnergyConverter
 
             # STEP 1: Build raw cumulative sums from CSV deltas.
             csv_total = 0.0
@@ -363,6 +364,7 @@ class HistoricalDataService:
                 statistic_id=statistic_id,
                 source="recorder",
                 name=f"Shelly Energy ({statistic_id})",
+                unit_class=EnergyConverter.UNIT_CLASS,
                 unit_of_measurement="Wh",
                 has_sum=True,
                 has_mean=False,
