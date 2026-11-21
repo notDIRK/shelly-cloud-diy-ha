@@ -356,7 +356,7 @@ Konfigurieren*.
 ## Voraussetzungen
 
 - Ein Shelly-Cloud-Account mit mindestens einem verknüpften Gerät.
-- Home Assistant **2024.1** oder neuer.
+- Home Assistant **2025.11** oder neuer.
 - Ausgehende HTTPS-Erreichbarkeit von Home Assistant zu `*.shelly.cloud`
   (Standard).
 - Keine eingehende Internet-Erreichbarkeit auf die HA-Instanz nötig.

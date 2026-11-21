@@ -46,7 +46,12 @@ from ..const import (
     NATIVE_CONTROL_DOMAINS,
     NATIVE_SHELLY_DOMAIN,
 )
-from ..utils.registry import async_get_own_device
+from ..utils.registry import (
+    async_get_own_device,
+    device_config_entry_ids,
+    device_primary_config_entry,
+    iter_devices,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
@@ -154,7 +159,7 @@ def _index_local_by_mac(
     preferred over a passive discovery record.
     """
     index: dict[str, dr.DeviceEntry] = {}
-    for device in dev_reg.devices.values():
+    for device in iter_devices(dev_reg):
         keys = {
             _norm_mac(value)
             for conn_type, value in device.connections
@@ -180,9 +185,9 @@ def _device_domain(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None:
     integration domain over any known HA helper/derivative domain; fall back to
     the first resolvable domain if every entry is a helper.
     """
-    entry_id = getattr(device, "primary_config_entry", None)
+    entry_id = device_primary_config_entry(device)
     candidates = [entry_id] if entry_id else []
-    candidates += [e for e in device.config_entries if e != entry_id]
+    candidates += [e for e in device_config_entry_ids(device) if e != entry_id]
     domains: list[str] = []
     for candidate in candidates:
         entry = hass.config_entries.async_get_entry(candidate)
@@ -336,8 +341,8 @@ def _native_shelly_devices(
         return []
     return [
         device
-        for device in dev_reg.devices.values()
-        if (device.config_entries & native_entry_ids)
+        for device in iter_devices(dev_reg)
+        if (device_config_entry_ids(device) & native_entry_ids)
         and _main_mac(device) is not None
     ]
 

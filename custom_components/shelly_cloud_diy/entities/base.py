@@ -278,12 +278,24 @@ class ShellyBaseEntity(CoordinatorEntity["ShellyCloudCoordinator"]):
         coordinator stamps a deadline for the last check-in, and staying
         available means still being inside it. Same contract as the native
         Shelly integration in HA core. (#13)
+
+        A mains device whose cached ``cloud.connected`` reads ``false`` is
+        still available while we keep watching it push new snapshots: the
+        flag is a cached transport bit, not liveness, and a remote Gen1 EM
+        went unavailable with fresh readings in the very same poll. A device
+        that really died stops pushing and drops out once its Reporting
+        window runs out. (#68)
         """
         device_data = self.device_data
         if device_data.get("online", False):
             return True
         if not device_data.get("sleeping"):
-            return False
+            has_fresh_push = getattr(self.coordinator, "has_fresh_push", None)
+            return bool(
+                device_data
+                and callable(has_fresh_push)
+                and has_fresh_push(self._device_id)
+            )
         stale_at = device_data.get("sleep_stale_at")
         if not isinstance(stale_at, (int, float)):
             return True

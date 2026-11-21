@@ -336,7 +336,7 @@ Turn it on under *Settings → Devices & services → Shelly Cloud DIY → Confi
 ## Requirements
 
 - A Shelly Cloud account with at least one device paired to it.
-- Home Assistant **2024.1** or newer.
+- Home Assistant **2025.11** or newer.
 - Outbound HTTPS reachability from Home Assistant to `*.shelly.cloud` (standard).
 - No inbound internet reachability needed on the Home Assistant side.
 

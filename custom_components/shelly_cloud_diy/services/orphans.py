@@ -41,6 +41,7 @@ from ..const import (
     ORPHAN_FLOOR_FRAC,
 )
 from ..services.replace_device import _shelly_id
+from ..utils.registry import device_config_entry_ids, iter_devices
 from .orphans_core import (
     DeviceView,
     assess_trust,
@@ -140,11 +141,11 @@ async def async_handle_detect_orphans(
         )
 
         views: list[DeviceView] = []
-        for device in dev_reg.devices.values():
+        for device in iter_devices(dev_reg):
             shelly_id = _shelly_id(device)
             if shelly_id is None:
                 continue
-            if entry.entry_id not in device.config_entries:
+            if entry.entry_id not in device_config_entry_ids(device):
                 continue
             if device.disabled_by is not None:
                 continue

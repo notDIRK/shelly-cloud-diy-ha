@@ -453,6 +453,12 @@ class CheckinRecord:
     # goes missing so the gap that spans the absence is not mistaken for the
     # device's normal cadence.
     absent: bool = False
+    # True once we have watched the fingerprint CHANGE at least once. First
+    # sight counts as a check-in for the Reporting sensor's benefit of the
+    # doubt, but it is no evidence the device is alive: after an HA restart a
+    # dead device's last snapshot looks exactly like a live one. Availability
+    # (#68) may only lean on check-ins we have actually seen happen.
+    seen_push: bool = False
 
     @property
     def stale_after_s(self) -> float:
@@ -676,6 +682,7 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         record.marker = marker
         record.last_checkin = now
         record.absent = False
+        record.seen_push = True
 
     def is_reporting(self, device_id: str) -> bool | None:
         """Whether ``device_id`` has checked in recently enough.
@@ -688,6 +695,22 @@ class ShellyCloudCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         if record is None:
             return None
         return record.is_reporting(time.monotonic())
+
+    def has_fresh_push(self, device_id: str) -> bool:
+        """Whether ``device_id`` pushed a new snapshot inside its window.
+
+        Stricter than :meth:`is_reporting`: a device we have only seen once
+        (for example right after an HA restart) does not qualify, because its
+        snapshot may be the last one a dead device ever sent. Used as the
+        availability fallback for devices whose cached ``cloud.connected``
+        reads ``false`` while fresh readings keep arriving. (#68)
+        """
+        record = self.checkins.get(device_id)
+        return (
+            record is not None
+            and record.seen_push
+            and record.is_reporting(time.monotonic())
+        )
 
     @property
     def offline_after_s(self) -> float:
